@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pavement Intelligence - Lecturas de Placas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#1353d8",
+                    "secondary-fixed": "#d9e3f4",
+                    "secondary": "#555f6d",
+                    "error-container": "#ffdad6",
+                    "on-secondary": "#ffffff",
+                    "tertiary-fixed": "#ffdbcf",
+                    "on-tertiary-fixed": "#380d00",
+                    "on-error": "#ffffff",
+                    "inverse-surface": "#2e3039",
+                    "on-primary-fixed": "#00174d",
+                    "surface-container": "#ededf8",
+                    "on-error-container": "#93000a",
+                    "tertiary-fixed-dim": "#ffb59a",
+                    "secondary-container": "#d6e0f1",
+                    "on-primary-container": "#d4dcff",
+                    "background": "#faf8ff",
+                    "surface-variant": "#e2e1ed",
+                    "surface": "#faf8ff",
+                    "on-tertiary": "#ffffff",
+                    "surface-dim": "#d9d9e4",
+                    "surface-container-low": "#f3f3fe",
+                    "primary": "#003fb1",
+                    "outline": "#737686",
+                    "on-tertiary-fixed-variant": "#802a00",
+                    "surface-container-high": "#e7e7f3",
+                    "on-surface-variant": "#434654",
+                    "secondary-fixed-dim": "#bdc7d8",
+                    "surface-bright": "#faf8ff",
+                    "on-tertiary-container": "#ffd4c5",
+                    "tertiary": "#852b00",
+                    "surface-container-lowest": "#ffffff",
+                    "primary-fixed-dim": "#b5c4ff",
+                    "outline-variant": "#c3c5d7",
+                    "error": "#ba1a1a",
+                    "primary-fixed": "#dbe1ff",
+                    "on-surface": "#191b23",
+                    "tertiary-container": "#ad3b00",
+                    "primary-container": "#1a56db",
+                    "inverse-on-surface": "#f0f0fb",
+                    "surface-container-highest": "#e2e1ed",
+                    "on-secondary-fixed": "#121c28",
+                    "on-secondary-container": "#596372",
+                    "on-primary": "#ffffff",
+                    "inverse-primary": "#b5c4ff",
+                    "on-primary-fixed-variant": "#003dab",
+                    "on-background": "#191b23",
+                    "on-secondary-fixed-variant": "#3e4755"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "margin-desktop": "32px",
+                    "gutter": "16px",
+                    "xl": "32px",
+                    "sm": "8px",
+                    "margin-mobile": "16px",
+                    "unit": "4px",
+                    "lg": "24px",
+                    "md": "16px",
+                    "max-width": "1440px",
+                    "xs": "4px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "headline-md-mobile": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "data-mono": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "display-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "headline-md-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                    "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                    "data-mono": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "500" }],
+                    "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                    "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-screen flex flex-col z-40 bg-surface-container-low border-r border-outline-variant w-64">
+<div class="p-4 border-b border-outline-variant flex items-center gap-3">
+<div class="w-8 h-8 rounded-DEFAULT bg-primary text-on-primary flex items-center justify-center font-bold">PI</div>
+<div>
+<h1 class="font-headline-sm text-headline-sm font-bold text-on-surface">Pavement Intelligence</h1>
+<p class="font-body-md text-body-md text-on-surface-variant text-xs">MVP Hackatón</p>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md">Inicio</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all bg-secondary-container text-on-secondary-container font-bold" href="#">
+<span class="material-symbols-outlined" data-icon="traffic">traffic</span>
+<span class="font-label-md text-label-md">Monitoreo de tráfico</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="directions_bus">directions_bus</span>
+<span class="font-label-md text-label-md">Transporte público</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-label-md text-label-md">TPDA</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="scale">scale</span>
+<span class="font-label-md text-label-md">Pesaje y cargas por eje</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="engineering">engineering</span>
+<span class="font-label-md text-label-md">ESAL</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="layers">layers</span>
+<span class="font-label-md text-label-md">Estudio de suelos</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="straighten">straighten</span>
+<span class="font-label-md text-label-md">Diseño de pavimentos</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="assessment">assessment</span>
+<span class="font-label-md text-label-md">Reportes</span>
+</a>
+</div>
+<div class="p-4 border-t border-outline-variant flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-label-md text-label-md">Ayuda</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-DEFAULT mb-1 transition-all text-on-surface-variant hover:bg-surface-container-highest" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span>
+<span class="font-label-md text-label-md">Cerrar sesión</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="ml-64 flex-1 flex flex-col h-screen overflow-hidden">
+<!-- TopNavBar -->
+<header class="flex justify-between items-center w-full px-margin-desktop h-16 z-50 bg-surface border-b border-outline-variant">
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors flex items-center gap-1 font-label-md text-label-md">
+<span class="material-symbols-outlined text-sm" data-icon="arrow_back">arrow_back</span>
+                    Volver a Monitoreo
+                </button>
+<div class="h-6 w-px bg-outline-variant"></div>
+<h2 class="font-headline-md text-headline-md font-bold text-primary flex items-center gap-2">
+                    Lecturas de placas
+                    <span class="bg-surface-variant text-on-surface-variant font-label-md text-xs px-2 py-0.5 rounded-DEFAULT uppercase tracking-wider">EXPERIMENTAL</span>
+</h2>
+</div>
+<div class="flex items-center gap-4">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-primary font-label-md text-label-md transition-colors mr-2">
+<span class="material-symbols-outlined text-sm" data-icon="visibility">visibility</span>
+                    Mostrar placa completa
+                </button>
+<button class="flex items-center gap-2 bg-primary-container text-on-primary font-label-md text-label-md px-4 py-2 rounded-DEFAULT hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+                    Exportar lecturas revisadas
+                </button>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-container-high p-2 rounded-full transition-colors" data-icon="settings">settings</span>
+<span class="material-symbols-outlined cursor-pointer hover:bg-surface-container-high p-2 rounded-full transition-colors" data-icon="notifications">notifications</span>
+</div>
+</div>
+</header>
+<!-- Notice Banner -->
+<div class="bg-surface-variant text-on-surface-variant px-6 py-2 flex items-center gap-2 font-body-md text-body-md border-b border-outline-variant">
+<span class="material-symbols-outlined text-sm" data-icon="info">info</span>
+<span>Las lecturas requieren validación humana. Por favor revise las lecturas marcadas como dudosas.</span>
+</div>
+<div class="flex-1 flex overflow-hidden">
+<!-- Central Content Area -->
+<main class="flex-1 flex flex-col p-6 overflow-y-auto bg-surface gap-6">
+<!-- Metrics Summary -->
+<div class="grid grid-cols-5 gap-4">
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 relative overflow-hidden">
+<span class="material-symbols-outlined absolute top-2 right-2 text-outline-variant text-sm" data-icon="shield">shield</span>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Placas Detectadas</p>
+<p class="font-headline-md text-headline-md font-bold text-on-surface">1,245</p>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 border-l-4 border-l-primary relative overflow-hidden">
+<span class="material-symbols-outlined absolute top-2 right-2 text-outline-variant text-sm" data-icon="shield">shield</span>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Lecturas Válidas</p>
+<p class="font-headline-md text-headline-md font-bold text-on-surface">982</p>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 border-l-4 border-l-[#eab308] relative overflow-hidden">
+<span class="material-symbols-outlined absolute top-2 right-2 text-outline-variant text-sm" data-icon="shield">shield</span>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Dudosas</p>
+<p class="font-headline-md text-headline-md font-bold text-on-surface">143</p>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 relative overflow-hidden">
+<span class="material-symbols-outlined absolute top-2 right-2 text-outline-variant text-sm" data-icon="shield">shield</span>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Pendientes</p>
+<p class="font-headline-md text-headline-md font-bold text-on-surface">120</p>
+</div>
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 relative overflow-hidden">
+<span class="material-symbols-outlined absolute top-2 right-2 text-outline-variant text-sm" data-icon="shield">shield</span>
+<p class="font-label-md text-label-md text-on-surface-variant mb-1">Confianza Media OCR</p>
+<p class="font-headline-md text-headline-md font-bold text-on-surface">87%</p>
+</div>
+</div>
+<!-- Filters -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT p-4 flex gap-4 items-end flex-wrap">
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Fecha/Hora</label>
+<input class="border border-outline-variant rounded-DEFAULT px-3 py-1.5 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none" type="datetime-local" value="2023-10-25T08:00"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Estado</label>
+<select class="border border-outline-variant rounded-DEFAULT px-3 py-1.5 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>Todos</option>
+<option>Válidas</option>
+<option selected="">Dudosas</option>
+<option>Ilegibles</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Tipo</label>
+<select class="border border-outline-variant rounded-DEFAULT px-3 py-1.5 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>Todos</option>
+<option>Ligero</option>
+<option>Pesado</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Confianza Mín.</label>
+<select class="border border-outline-variant rounded-DEFAULT px-3 py-1.5 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option>0%</option>
+<option selected="">50%</option>
+<option>80%</option>
+</select>
+</div>
+<div class="flex flex-col gap-1 flex-1 min-w-[200px]">
+<label class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="lock">lock</span>
+                        Buscar ID Anonimizado
+                    </label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="w-full border border-outline-variant rounded-DEFAULT pl-9 pr-3 py-1.5 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none" placeholder="Ej. TRK-842" type="text"/>
+</div>
+</div>
+</div>
+<!-- Data Table -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-DEFAULT overflow-hidden flex-1 flex flex-col">
+<div class="overflow-x-auto flex-1">
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low border-b border-outline-variant font-label-md text-label-md text-on-surface-variant">
+<tr>
+<th class="p-3 font-semibold">Hora</th>
+<th class="p-3 font-semibold">IDs</th>
+<th class="p-3 font-semibold">Miniatura</th>
+<th class="p-3 font-semibold">Lectura</th>
+<th class="p-3 font-semibold">Confianza</th>
+<th class="p-3 font-semibold">Tipo</th>
+<th class="p-3 font-semibold">Sentido</th>
+<th class="p-3 font-semibold">Estado</th>
+<th class="p-3 font-semibold">Acción</th>
+</tr>
+</thead>
+<tbody class="font-data-mono text-data-mono text-on-surface divide-y divide-outline-variant whitespace-nowrap">
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="p-3">08:14:22</td>
+<td class="p-3 flex flex-col gap-0.5 text-xs">
+<span class="text-on-surface-variant">L: L-93821</span>
+<span class="text-on-surface-variant">S: S-593</span>
+</td>
+<td class="p-3">
+<div class="w-16 h-8 bg-surface-dim border border-outline-variant rounded-sm flex items-center justify-center overflow-hidden relative">
+<img class="w-full h-full object-cover grayscale blur-[1px]" data-alt="A small, cropped black and white image of a vehicle license plate. The text is slightly blurry but legible. Bright daylight lighting, clear contrast between text and plate background. Utilitarian style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBNzahdYdEKsd728a3mze0JhdEES2V6PjGORdlpt3nJvsiGn4h_3ssppSYVlE-dAzEuTB-z7mYuzhAr0GP6U_1pXsl9UFFHsvC5sBb9H-YJKmBhBkmoPYt4heqXswpg_78PMvirTUabzMiBfXr4See5ZR2dAc_oGPMjRuOM8hoeWhIu4NdQYfSd9rHsExAnK3oPOBLSFcowuCcvgO_CPvx76aBPDCW47OGfq9kuSlMedKSaSNcLkh0rGWbylnZdGHtpqBm1uGbIdn6O"/>
+</div>
+</td>
+<td class="p-3 flex items-center gap-1">***-4A7 <span class="material-symbols-outlined text-outline-variant text-[14px]" data-icon="lock">lock</span></td>
+<td class="p-3 text-primary">92%</td>
+<td class="p-3">Pesado</td>
+<td class="p-3">N-S</td>
+<td class="p-3"><span class="bg-[#dcfce7] text-[#166534] px-2 py-0.5 rounded-sm font-label-md text-[10px] uppercase">Válida</span></td>
+<td class="p-3"><button class="text-primary hover:underline font-label-md">Revisar</button></td>
+</tr>
+<tr class="bg-secondary-container bg-opacity-30 border-l-2 border-l-[#eab308]">
+<td class="p-3">08:15:01</td>
+<td class="p-3 flex flex-col gap-0.5 text-xs">
+<span class="text-on-surface-variant">L: L-93822</span>
+<span class="text-on-surface-variant">S: S-594</span>
+</td>
+<td class="p-3">
+<div class="w-16 h-8 bg-surface-dim border border-outline-variant rounded-sm flex items-center justify-center overflow-hidden relative">
+<img class="w-full h-full object-cover grayscale blur-[1px]" data-alt="A small, cropped black and white image of a vehicle license plate. The image is somewhat dark and grainy, making the characters difficult to read. Low contrast, utilitarian style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCe0hn7td6tB9X3Eaw3Xc42aMZFd9XpLpibkeb1Kuav7hxZUw5pcgLGcjsMjgrRGcr1I9DVLZUkXz-J0FQfOlh-GKLIGMwSjBAZ2YqQXRFXwrE5Q-sIwDl3C3uHSo4grgw0hBUBtfihmwfEx4JLQ4JDptuHoPtWf_ewGOzmTTRHT1ZYDKaMsnggCcCD9gRdEqACaLY3agcS7_7o52ErRfPvRFuThzWcuDn8b1JwqKBVyCZw9_Aj9mtn5q0XbWQElJNJoxiUgMOomcBe"/>
+</div>
+</td>
+<td class="p-3 font-bold flex items-center gap-1">***-4?2 <span class="material-symbols-outlined text-outline-variant text-[14px]" data-icon="lock">lock</span></td>
+<td class="p-3 text-[#eab308]">54%</td>
+<td class="p-3">Ligero</td>
+<td class="p-3">S-N</td>
+<td class="p-3 flex items-center gap-2">
+<span class="bg-[#fef08a] text-[#854d0e] px-2 py-0.5 rounded-sm font-label-md text-[10px] uppercase">Dudosa</span>
+<span class="bg-error-container text-on-error-container px-2 py-0.5 rounded-sm font-label-md text-[10px] uppercase flex items-center gap-1" title="Posible duplicado"><span class="material-symbols-outlined text-[12px]" data-icon="warning">warning</span></span>
+</td>
+<td class="p-3"><button class="text-primary font-bold hover:underline font-label-md">Revisando...</button></td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors">
+<td class="p-3">08:16:45</td>
+<td class="p-3 flex flex-col gap-0.5 text-xs">
+<span class="text-on-surface-variant">L: L-93823</span>
+<span class="text-on-surface-variant">S: -</span>
+</td>
+<td class="p-3">
+<div class="w-16 h-8 bg-surface-dim border border-outline-variant rounded-sm flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover grayscale blur-[1px]" data-alt="A small, cropped black and white image of a vehicle license plate. The image is completely washed out by glare, making the plate entirely unreadable. High key, overexposed utilitarian style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCOUiDXULsxGDTURlvt1yqdY5NoKujKmteWGQZoisxW99Ki_komRlubRE0imwa3mRjcokfItNqtiEe1kndV0tEosfAJdsblmOFxgm-hslQ6ywAxj7Oq7Fmg_Trut9VChXgmy0hCDaltdmtOOV-8hHx3-Iwwfau8K5pTycKpjl7HS8pGCkO_Wr-XWWuCdk15XndmK8xOkMPfuOlIKNqnxzkYjLM1YkqzSQhTVnnitoeKDBUw1zVStGSirHSW3SOfdMpVyib-ZrDIpp6V"/>
+</div>
+</td>
+<td class="p-3">---</td>
+<td class="p-3 text-error">12%</td>
+<td class="p-3">Ligero</td>
+<td class="p-3">N-S</td>
+<td class="p-3"><span class="bg-error-container text-error px-2 py-0.5 rounded-sm font-label-md text-[10px] uppercase">Ilegible</span></td>
+<td class="p-3"><button class="text-primary hover:underline font-label-md">Revisar</button></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</main>
+<!-- Review Side Panel -->
+<aside class="w-80 border-l border-outline-variant bg-surface-container-lowest flex flex-col z-10 flex-shrink-0">
+<div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface">
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Revisión Manual</h3>
+<button class="text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+<!-- Images -->
+<div class="flex flex-col gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant">Fotograma Original</span>
+<div class="w-full h-32 bg-surface-dim border border-outline-variant rounded-DEFAULT overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A wide angle, grayscale traffic camera frame showing an urban street with cars waiting at a traffic light. The scene includes buildings, streetlights, and a pedestrian crossing. Professional, technical monitoring style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDspy4zdBafyhBdORXVj9paoeZDj2DJRk4BnWWIhkBxaQr44ss_A9tW9uvT40zer-QgzHGRmy9z8G5K8RJd7S11gFRd8Qcc-QdXkcz_ooEr0pv_ipZRb8Fcf-SAr1CI8ur56WuiOZhGeYjZp2LhDOoX7yZiNuyTU8frSv-aIqevF_NTe5XxUObJH5tL2bQOxx3ybpsRK1S-K4l1d4U99mAuEe9n7JcF8zN8KdwwpKPhcycCLZexLVD7F_bASRC-Ntq_eXoU_eFfcgJu"/>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant mt-2 flex justify-between items-center">
+                        Recorte Placa
+                        <span class="material-symbols-outlined text-outline-variant text-[14px]" data-icon="lock" title="Información protegida">lock</span>
+</span>
+<div class="w-full h-20 bg-surface-dim border border-primary rounded-DEFAULT overflow-hidden p-1 relative">
+<img class="w-full h-full object-cover grayscale blur-[2px]" data-alt="A zoomed-in, cropped black and white image of a vehicle license plate. The text is somewhat grainy but a user could potentially decipher it. High contrast, utilitarian technical style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBYVH3O6ODsk6vvbf--n0w7FntTTx3SjGkXrXuv2dF7shKLAPVslIyvYnmEZvkO5Bgc60QnBrq2Pbh0dFLKERu3y7jioxrgHGnf2I0lncvp3x6hADIrsN23dvZ-WNiUqfBGQnlYrOaOGsNHfZZojcDCy2gTBS6XslXqkXaiGECsDTnvTpSxu4Kju_bi3LyK0hzKuruf0NTAgSSmqfisvVm6Pxa5YhYN38x1gGbobUi86Cv7pcIUme5Y_GYRip0ayeroKRptuC2n7nRX"/>
+</div>
+</div>
+<!-- OCR Correction -->
+<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Lectura Original OCR</label>
+<div class="w-full border border-outline-variant bg-surface-variant rounded-DEFAULT px-3 py-2 font-data-mono text-lg text-center tracking-widest text-on-surface-variant">GHK-4?2</div>
+<div class="flex justify-between items-center mt-1">
+<span class="font-label-md text-[10px] text-on-surface-variant">Confianza OCR: <span class="text-[#eab308] font-bold">54%</span></span>
+<span class="font-label-md text-[10px] text-on-surface-variant">Alts: GHK-492 (48%), GHK-472 (12%)</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Lectura Corregida (Editable)</label>
+<input class="w-full border-2 border-primary rounded-DEFAULT px-3 py-2 font-data-mono text-lg text-center tracking-widest focus:border-primary focus:ring-1 focus:ring-primary outline-none" type="text" value="GHK-492"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Motivo de corrección *</label>
+<select class="w-full border border-outline-variant rounded-DEFAULT px-3 py-2 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none">
+<option disabled="" selected="" value="">Seleccione un motivo...</option>
+<option value="ocr">Carácter confundido por OCR</option>
+<option value="obstructed">Imagen obstruida</option>
+<option value="glare">Reflejo o iluminación</option>
+<option value="crop">Recorte incorrecto</option>
+<option value="duplicate">Lectura duplicada</option>
+<option value="other">Otro</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-label-md text-label-md text-on-surface-variant">Observaciones (Opcional)</label>
+<textarea class="w-full border border-outline-variant rounded-DEFAULT px-3 py-2 font-body-md text-body-md focus:border-primary focus:ring-1 focus:ring-primary outline-none resize-none h-20" placeholder="Añadir notas..."></textarea>
+</div>
+</div>
+<!-- Meta -->
+<div class="bg-surface-container-low rounded-DEFAULT p-3 flex flex-col gap-2 border border-outline-variant">
+<div class="flex justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Hora:</span>
+<span class="font-data-mono text-sm text-on-surface">08:15:01</span>
+</div>
+<div class="flex justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Categoría:</span>
+<span class="font-data-mono text-sm text-on-surface">Ligero</span>
+</div>
+<div class="flex justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Sentido:</span>
+<span class="font-data-mono text-sm text-on-surface">S-N</span>
+</div>
+</div>
+<!-- Audit Trail -->
+<div class="flex flex-col gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant">Historial de Revisión</span>
+<div class="bg-surface-container-low border border-outline-variant rounded-DEFAULT p-3 flex flex-col gap-2 text-xs">
+<div class="flex justify-between">
+<span class="text-on-surface-variant font-semibold">Revisor:</span>
+<span class="font-data-mono">jperez</span>
+</div>
+<div class="flex justify-between">
+<span class="text-on-surface-variant font-semibold">Fecha:</span>
+<span class="font-data-mono">25/10/2023 08:20</span>
+</div>
+<div class="flex flex-col gap-1 mt-1 border-t border-outline-variant pt-2">
+<span class="text-on-surface-variant font-semibold">Cambio:</span>
+<span class="font-data-mono">GHK-4?2 → GHK-492</span>
+</div>
+<div class="flex flex-col gap-1 mt-1">
+<span class="text-on-surface-variant font-semibold">Motivo:</span>
+<span>Carácter confundido por OCR</span>
+</div>
+<div class="flex justify-between mt-1 pt-2 border-t border-outline-variant">
+<span class="text-on-surface-variant font-semibold">Estado:</span>
+<span class="text-[#854d0e] font-bold">Revisando</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Actions -->
+<div class="p-4 border-t border-outline-variant bg-surface flex flex-col gap-2 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+<button class="w-full bg-surface-container-lowest border border-outline-variant text-on-surface font-label-md text-label-md py-2 rounded-DEFAULT hover:bg-surface-container-highest transition-colors">
+                        Confirmar sin cambios
+                    </button>
+<button class="w-full bg-primary-container text-on-primary font-label-md text-label-md py-2 rounded-DEFAULT hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
+                        Guardar y confirmar corrección
+                    </button>
+<div class="flex gap-2 mt-2">
+<button class="flex-1 bg-[#fef08a] text-[#854d0e] font-label-md text-xs py-2 rounded-DEFAULT hover:opacity-90 transition-opacity border border-[#eab308]">
+                            Marcar como dudosa
+                        </button>
+<button class="flex-1 bg-error-container text-error font-label-md text-xs py-2 rounded-DEFAULT hover:opacity-90 transition-opacity border border-error">
+                            Marcar como ilegible
+                        </button>
+</div>
+</div>
+</aside>
+</div>
+</div>
+</body></html>
