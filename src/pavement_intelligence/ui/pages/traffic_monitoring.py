@@ -128,7 +128,7 @@ with side_col:
         doubtful_col.metric("Dudosas", state.ocr.doubtful)
         confidence_col.metric("Confianza", format_unit(state.ocr.average_confidence_percent, "%"))
         if st.button("Ver lecturas", icon=":material/visibility:", width="stretch"):
-            st.info("La pantalla completa de revisión OCR está pendiente de implementación.")
+            st.switch_page("pages/ocr_plate_review.py")
 
     with st.container(border=True, gap="small"):
         st.markdown("**Alertas recientes**")

@@ -15,6 +15,7 @@ st.set_page_config(page_title="Pavement Intelligence", layout="wide")
 pages = [
     st.Page("pages/home.py", title="Inicio", icon="🏠", default=True),
     st.Page("pages/traffic_monitoring.py", title="Monitoreo de tráfico", icon=":material/traffic:"),
+    st.Page("pages/ocr_plate_review.py", title="Lecturas de placas", icon=":material/license:"),
     st.Page("pages/video_analysis.py", title="Análisis de video", icon="🎥"),
     st.Page("pages/traffic_review.py", title="Revisión del aforo automático", icon="🔍"),
     st.Page("pages/survey_tpda.py", title="Aforo y TPDA", icon="📊"),

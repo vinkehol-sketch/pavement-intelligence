@@ -114,14 +114,15 @@ class OcrSummaryPresentation:
     doubtful: int
     pending: int
     average_confidence_percent: float
+    illegible: int = 0
     experimental: bool = True
 
     def __post_init__(self) -> None:
-        for name in ("detected", "valid", "doubtful", "pending", "average_confidence_percent"):
+        for name in ("detected", "valid", "doubtful", "pending", "illegible", "average_confidence_percent"):
             _non_negative(getattr(self, name), name)
         if self.average_confidence_percent > 100:
             raise ValueError("average_confidence_percent debe estar entre 0 y 100.")
-        if self.valid + self.doubtful + self.pending != self.detected:
+        if self.valid + self.doubtful + self.pending + self.illegible != self.detected:
             raise ValueError("El desglose OCR debe coincidir con el total detectado.")
 
 
