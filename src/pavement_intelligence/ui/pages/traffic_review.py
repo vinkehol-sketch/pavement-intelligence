@@ -116,6 +116,8 @@ def apply_review_update(
     session: dict[str, Any], event_id: str, changes: Mapping[str, Any], reviewer: str,
 ) -> None:
     """Aplica sólo campos revisables e invalida cualquier aprobación anterior."""
+    if not reviewer.strip():
+        raise ValueError("Toda revisión requiere un responsable.")
     forbidden = set(changes) - REVIEW_FIELDS
     if forbidden:
         raise ValueError(f"No se pueden modificar campos técnicos: {sorted(forbidden)}")
@@ -125,7 +127,7 @@ def apply_review_update(
         raise KeyError(event_id)
     event.update(dict(changes))
     event["reviewed"] = True
-    event["reviewed_by"] = reviewer
+    event["reviewed_by"] = reviewer.strip()
     event["reviewed_at"] = datetime.datetime.now().isoformat()
     invalidate_review_approval(session)
 
@@ -250,21 +252,26 @@ def validate_approval_criteria(
         warnings_approval.append("Existen vehículos con categoría 'DESCONOCIDO' pendientes de clasificar.")
 
     # Criterio 4: Justificaciones completas
-    justificaciones_completas = True
+    correcciones_completas = True
     for ev in reviewed_events:
         val_status = ev.get("validation_status", "sin_revisar")
         reason = ev.get("correction_reason", "")
+        reviewer = ev.get("reviewed_by", "")
         category_changed = (
             ev.get("corrected_category") in CATEGORIAS_ABC
             and ev.get("corrected_category") != ev.get("category")
             and ev.get("data_origin") != "manual"
         )
         if val_status in ["corregido", "descartado"] or category_changed:
-            if not reason or str(reason).strip() == "":
-                justificaciones_completas = False
+            if not str(reason).strip() or not str(reviewer).strip():
+                correcciones_completas = False
+        if val_status == "corregido" and ev.get("corrected_category") not in CATEGORIAS_ABC:
+            correcciones_completas = False
 
-    if not justificaciones_completas:
-        warnings_approval.append("Existen correcciones o descartes sin justificación escrita registrada.")
+    if not correcciones_completas:
+        warnings_approval.append(
+            "Existen correcciones o descartes sin categoría válida, justificación o revisor."
+        )
 
     manual_invalido = any(
         ev.get("data_origin") == "manual" and (
@@ -786,4 +793,3 @@ def render() -> None:
 
 if __name__ == "__main__":
     render()
-

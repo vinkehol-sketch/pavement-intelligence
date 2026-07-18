@@ -214,6 +214,33 @@ def test_correction_or_discard_requires_reason():
     assert any("justificación" in warning for warning in warnings)
 
 
+def test_correction_requires_reviewer_and_valid_category():
+    event = reviewed_event(
+        validation_status="corregido", corrected_category="CAMIONETA",
+        correction_reason="Reclasificación visual", reviewed_by="",
+    )
+    approved, warnings = review.validate_approval_criteria([event], False, False)
+    assert approved is False
+    assert any("revisor" in warning for warning in warnings)
+
+    event["reviewed_by"] = "Ing. Revisor"
+    event["corrected_category"] = None
+    approved, warnings = review.validate_approval_criteria([event], False, False)
+    assert approved is False
+    assert any("categoría válida" in warning for warning in warnings)
+
+
+def test_review_update_rejects_blank_reviewer():
+    session = session_with_event()
+    with pytest.raises(ValueError, match="responsable"):
+        review.apply_review_update(
+            session, "evt_1",
+            {"validation_status": "corregido", "corrected_category": "CAMIONETA",
+             "correction_reason": "Reclasificación visual"},
+            "   ",
+        )
+
+
 def test_no_final_valid_event_blocks_approval():
     event = reviewed_event(validation_status="descartado", include_in_final_count=False,
                            correction_reason="Falso positivo")
@@ -371,6 +398,5 @@ def test_new_batch_does_not_reuse_previous_counts():
     assert len(reviewed_new) == 1
     assert reviewed_new[0]["category"] == "MOTO"
     assert reviewed_new[0]["corrected_category"] == "MOTO"
-
 
 
