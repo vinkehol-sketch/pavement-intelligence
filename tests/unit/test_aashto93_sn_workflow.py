@@ -7,11 +7,13 @@ from pavement_intelligence.aashto93.sn_workflow import (
     AASHTO93Input,
     ESAL5ATransfer,
     EQUATION,
+    LOWER_BOUND_WARNING_CODE,
     MANDATORY_WARNING,
     MPA_TO_PSI,
     MR5ATransfer,
     METHODOLOGY_VERSION,
     SolverSettings,
+    UPPER_BOUND_WARNING_CODE,
     ZR_CATALOG,
     ZR_CATALOG_VERSION,
     aashto_log10_w18,
@@ -19,6 +21,7 @@ from pavement_intelligence.aashto93.sn_workflow import (
     convert_mr_to_psi,
     residual,
     result_is_stale,
+    solver_bound_warnings,
     store_result,
     validate_input,
     zr_from_catalog,
@@ -185,6 +188,63 @@ def test_interval_without_root_and_insufficient_iterations_block():
         calculate_required_sn(valid_input(solver=SolverSettings(0.01, 0.02, 1e-8, 100)))
     with pytest.raises(ValueError, match="no convergió"):
         calculate_required_sn(valid_input(solver=SolverSettings(0.01, 15, 1e-15, 1)))
+
+
+def test_solution_far_from_bounds_has_no_bound_warning():
+    result = calculate_required_sn(valid_input())
+    assert not any("SN_CERCANO_LIMITE_" in item for item in result.warnings)
+    assert result.boundary_margin_fraction == pytest.approx(0.02)
+    assert result.boundary_margin_absolute == pytest.approx((15 - 0.01) * 0.02)
+
+
+def test_near_lower_and_upper_bounds_have_distinct_traceable_warnings():
+    lower = calculate_required_sn(
+        valid_input(solver=SolverSettings(4.03, 5.0, 1e-8, 100, 0.02))
+    )
+    upper = calculate_required_sn(
+        valid_input(solver=SolverSettings(3.0, 4.05, 1e-8, 100, 0.02))
+    )
+    lower_warning = next(x for x in lower.warnings if LOWER_BOUND_WARNING_CODE in x)
+    upper_warning = next(x for x in upper.warnings if UPPER_BOUND_WARNING_CODE in x)
+    for warning in (lower_warning, upper_warning):
+        assert "SN=" in warning and "margen=" in warning and "recalcule" in warning
+
+
+def test_exact_threshold_is_inclusive_and_zero_margin_disables_warning():
+    settings = SolverSettings(2.0, 12.0, 1e-8, 100, 0.02)
+    warnings, margin = solver_bound_warnings(2.2, settings)
+    assert margin == pytest.approx(0.2)
+    assert warnings and LOWER_BOUND_WARNING_CODE in warnings[0]
+    assert (
+        solver_bound_warnings(2.0, replace(settings, boundary_margin_fraction=0))[0]
+        == ()
+    )
+
+
+@pytest.mark.parametrize("margin", [-0.01, math.nan, math.inf, -math.inf, 0.26])
+def test_invalid_boundary_margin_blocks(margin):
+    with pytest.raises(ValueError, match="margen de proximidad"):
+        validate_input(valid_input(solver=SolverSettings(0.01, 15, 1e-8, 100, margin)))
+
+
+def test_margin_changes_fingerprint_but_not_numerical_solution():
+    with_margin = valid_input(solver=SolverSettings(0.01, 15, 1e-8, 100, 0.02))
+    without_margin = replace(
+        with_margin, solver=replace(with_margin.solver, boundary_margin_fraction=0)
+    )
+    first = calculate_required_sn(with_margin)
+    second = calculate_required_sn(without_margin)
+    assert result_is_stale(first, without_margin)
+    assert first.required_sn == second.required_sn
+    assert first.residual == second.residual
+    assert first.iterations == second.iterations
+
+
+def test_interval_without_root_still_blocks_with_boundary_margin():
+    with pytest.raises(ValueError, match="no encierra"):
+        calculate_required_sn(
+            valid_input(solver=SolverSettings(0.01, 0.02, 1e-8, 100, 0.02))
+        )
 
 
 def test_manual_zr_requires_correct_sign_and_declared_source():

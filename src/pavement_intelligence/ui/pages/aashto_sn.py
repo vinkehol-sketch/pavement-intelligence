@@ -158,6 +158,14 @@ with st.form("aashto5a_form", border=True):
     sn_max = st.number_input("SN máximo", value=15.0, format="%.2f")
     tolerance = st.number_input("Tolerancia de residuo", value=0.0001, format="%.6f")
     max_iterations = st.number_input("Iteraciones máximas", value=100, step=1)
+    boundary_margin_fraction = st.number_input(
+        "Margen relativo para advertir proximidad a límites",
+        min_value=0.0,
+        max_value=0.25,
+        value=0.02,
+        format="%.3f",
+        help="Fracción del ancho del intervalo; 0,02 equivale al 2 %.",
+    )
     submitted = st.form_submit_button(
         "Calcular SN requerido", type="primary", icon=":material/calculate:"
     )
@@ -191,7 +199,13 @@ data = AASHTO93Input(
     responsible,
     justification,
     esal.warnings + mr.warnings,
-    SolverSettings(float(sn_min), float(sn_max), float(tolerance), int(max_iterations)),
+    SolverSettings(
+        float(sn_min),
+        float(sn_max),
+        float(tolerance),
+        int(max_iterations),
+        float(boundary_margin_fraction),
+    ),
     acknowledged,
     created_at=st.session_state["aashto5a_contract_date"],
 )
@@ -219,6 +233,9 @@ if isinstance(result, AASHTO93Result):
             f"Convergencia: **SÍ** · residuo: `{result.residual:.3e}` · iteraciones: `{result.iterations}`"
         )
     st.code(result.equation)
+    for warning in result.warnings:
+        if warning.startswith("SN_CERCANO_LIMITE_"):
+            st.warning(warning)
     st.json(result.as_dict(), expanded=False)
     st.download_button(
         "Descargar resultado JSON",

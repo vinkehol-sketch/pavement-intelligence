@@ -20,12 +20,14 @@ def test_ui_exposes_solver_traceability_warning_and_json():
         "SN máximo",
         "Tolerancia de residuo",
         "Iteraciones máximas",
+        "Margen relativo para advertir proximidad a límites",
         "residuo",
         "iteraciones",
         "MANDATORY_WARNING",
         "Descargar resultado JSON",
         "DESACTUALIZADO",
         "Cálculo bloqueado",
+        "SN_CERCANO_LIMITE_",
     ):
         assert expected in SOURCE
 

@@ -61,6 +61,9 @@ MANDATORY_WARNING = (
     "confiabilidad, serviciabilidad y demás parámetros ingresados.\n\n"
     "No constituye por sí solo un diseño vial aprobado ni una recomendación constructiva."
 )
+LOWER_BOUND_WARNING_CODE = "SN_CERCANO_LIMITE_INFERIOR"
+UPPER_BOUND_WARNING_CODE = "SN_CERCANO_LIMITE_SUPERIOR"
+MAX_BOUNDARY_MARGIN_FRACTION = 0.25
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,7 @@ class SolverSettings:
     sn_max: float
     tolerance: float
     max_iterations: int
+    boundary_margin_fraction: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -175,6 +179,8 @@ class AASHTO93Result:
     iterations: int
     initial_interval: tuple[float, float]
     tolerance: float
+    boundary_margin_fraction: float
+    boundary_margin_absolute: float
     converged: bool
     esal_transfer: ESAL5ATransfer
     mr_transfer: MR5ATransfer
@@ -388,6 +394,49 @@ def validate_input(data: AASHTO93Input) -> None:
         raise ValueError("Intervalo SN inválido.")
     if s.tolerance <= 0 or isinstance(s.max_iterations, bool) or s.max_iterations <= 0:
         raise ValueError("Tolerancia e iteraciones deben ser positivas.")
+    if (
+        not math.isfinite(s.boundary_margin_fraction)
+        or not 0 <= s.boundary_margin_fraction <= MAX_BOUNDARY_MARGIN_FRACTION
+    ):
+        raise ValueError(
+            "El margen de proximidad debe ser finito y estar entre 0 y 0,25."
+        )
+
+
+def solver_bound_warnings(
+    sn: float, settings: SolverSettings
+) -> tuple[tuple[str, ...], float]:
+    """Advierte proximidad al borde sin alterar solución ni convergencia."""
+    width = settings.sn_max - settings.sn_min
+    margin = width * settings.boundary_margin_fraction
+    if margin == 0:
+        return (), margin
+    warnings: list[str] = []
+    lower_distance = sn - settings.sn_min
+    upper_distance = settings.sn_max - sn
+    lower_is_near = lower_distance <= margin or math.isclose(
+        lower_distance, margin, rel_tol=1e-12, abs_tol=1e-12
+    )
+    upper_is_near = upper_distance <= margin or math.isclose(
+        upper_distance, margin, rel_tol=1e-12, abs_tol=1e-12
+    )
+    if lower_is_near:
+        warnings.append(
+            f"{LOWER_BOUND_WARNING_CODE}: SN={sn:.6f}; límite inferior="
+            f"{settings.sn_min:.6f}; margen={margin:.6f}. El SN calculado se "
+            "encuentra muy próximo al límite inferior del intervalo de búsqueda. "
+            "Amplíe SN mínimo hacia abajo y recalcule para confirmar que la raíz "
+            "no está condicionada por el intervalo."
+        )
+    if upper_is_near:
+        warnings.append(
+            f"{UPPER_BOUND_WARNING_CODE}: SN={sn:.6f}; límite superior="
+            f"{settings.sn_max:.6f}; margen={margin:.6f}. El SN calculado se "
+            "encuentra muy próximo al límite superior del intervalo de búsqueda. "
+            "Amplíe SN máximo y recalcule para confirmar que la raíz no está "
+            "condicionada por el intervalo."
+        )
+    return tuple(warnings), margin
 
 
 def input_fingerprint(data: AASHTO93Input) -> str:
@@ -409,12 +458,14 @@ def calculate_required_sn(data: AASHTO93Input) -> AASHTO93Result:
         if abs(fmid) <= data.solver.tolerance:
             at = datetime.now(timezone.utc).isoformat()
             fp = input_fingerprint(data)
+            bound_warnings, boundary_margin = solver_bound_warnings(mid, data.solver)
             warnings = tuple(
                 dict.fromkeys(
                     data.inherited_warnings
                     + data.esal_transfer.warnings
                     + data.mr_transfer.warnings
                     + (MANDATORY_WARNING,)
+                    + bound_warnings
                 )
             )
             return AASHTO93Result(
@@ -436,6 +487,8 @@ def calculate_required_sn(data: AASHTO93Input) -> AASHTO93Result:
                 iteration,
                 (data.solver.sn_min, data.solver.sn_max),
                 data.solver.tolerance,
+                data.solver.boundary_margin_fraction,
+                boundary_margin,
                 True,
                 data.esal_transfer,
                 data.mr_transfer,

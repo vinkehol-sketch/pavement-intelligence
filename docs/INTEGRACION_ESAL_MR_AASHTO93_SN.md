@@ -68,6 +68,13 @@ y convergencia real. El intervalo demostrativo visible es 0,01–15, la toleranc
 visible es `1e-4` y el límite visible es 100 iteraciones; todos son editables y
 trazables. No converger o no encerrar una raíz bloquea el resultado.
 
+Como control posterior a la convergencia, el solver calcula un margen relativo
+configurable: `(SN_max - SN_min) × porcentaje_margen`. El valor demostrativo visible
+es 0,02 (2 %) y el rango admitido es 0–0,25. Si el SN queda dentro del margen se
+conserva `SN_CERCANO_LIMITE_INFERIOR` o `SN_CERCANO_LIMITE_SUPERIOR` en el resultado
+y JSON, y se recomienda ampliar el intervalo y recalcular. Es únicamente una
+advertencia: no altera la raíz, el residuo, las iteraciones ni la convergencia.
+
 ## Ejemplo y sensibilidad
 
 Caso documentado: W18=5.000.000, MR=10.000 psi, R=90 %, ZR=-1,282, S0=0,45,
