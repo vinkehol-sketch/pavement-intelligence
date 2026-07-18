@@ -106,12 +106,14 @@ def test_original_category_and_all_technical_fields_are_immutable():
 
 def test_modifying_event_invalidates_previous_approval():
     session = session_with_event()
+    session["tpda_input_from_review"] = {"batch_hash": "review:anterior"}
     review.apply_review_update(
         session, "evt_1", {"validation_status": "descartado", "include_in_final_count": False,
                              "correction_reason": "Falso positivo"}, "Auditor",
     )
     assert session["traffic_review_approved"] is False
     assert session["traffic_counts_corrected"] == {}
+    assert session["tpda_input_from_review"] is None
 
 
 def test_loading_new_batch_clears_previous_review_and_preserves_tpda():
@@ -166,6 +168,34 @@ def test_import_error_does_not_contaminate_session_state():
     with pytest.raises(TrafficEventContractError):
         review.replace_review_session(session, invalid, is_synthetic=False)
     assert session == original
+
+
+@pytest.mark.parametrize("suffix", ["csv", "json"])
+def test_partially_invalid_upload_is_rejected_atomically(suffix):
+    session = session_with_event()
+    original = deepcopy(session)
+    records = [valid_event("evt_ok", 1), {**valid_event("evt_bad", 2), "direction": 0}]
+    if suffix == "json":
+        content = json.dumps(records).encode("utf-8")
+    else:
+        content = pd.DataFrame(records).to_csv(index=False).encode("utf-8")
+    payload = review.parse_uploaded_review_data(f"lote.{suffix}", content)
+    with pytest.raises(TrafficEventContractError):
+        review.replace_review_session(session, payload, is_synthetic=False)
+    assert session == original
+
+
+def test_content_fingerprint_distinguishes_files_and_reviewed_batches():
+    first = [valid_event("evt_a", 1)]
+    second = [valid_event("evt_b", 2)]
+    assert review.review_payload_fingerprint(first, "upload") != review.review_payload_fingerprint(
+        second, "upload"
+    )
+    reviewed = review.initialize_reviewed_events(first)
+    before = review.review_payload_fingerprint(reviewed, "review")
+    reviewed[0]["correction_reason"] = "Corrección trazable"
+    after = review.review_payload_fingerprint(reviewed, "review")
+    assert before != after
 
 
 def test_adapter_is_the_only_raw_event_normalizer(monkeypatch):
@@ -247,6 +277,18 @@ def test_no_final_valid_event_blocks_approval():
     approved, warnings = review.validate_approval_criteria([event], False, False)
     assert approved is False
     assert any("conteo final" in warning for warning in warnings)
+
+
+def test_invalid_final_category_blocks_even_with_other_valid_events():
+    valid = reviewed_event(corrected_category="AUTO", reviewed_by="Auditor")
+    invalid = reviewed_event(
+        event_id="evt_invalid",
+        corrected_category="CAMION",
+        reviewed_by="Auditor",
+    )
+    approved, warnings = review.validate_approval_criteria([valid, invalid], False, False)
+    assert approved is False
+    assert any("categoría vial final válida" in warning for warning in warnings)
 
 
 def test_consolidated_counts_use_only_confirmed_category():
@@ -398,5 +440,4 @@ def test_new_batch_does_not_reuse_previous_counts():
     assert len(reviewed_new) == 1
     assert reviewed_new[0]["category"] == "MOTO"
     assert reviewed_new[0]["corrected_category"] == "MOTO"
-
 

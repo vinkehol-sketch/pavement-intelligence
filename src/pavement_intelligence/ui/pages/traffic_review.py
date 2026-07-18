@@ -110,6 +110,8 @@ def replace_review_session(
 def invalidate_review_approval(session: dict[str, Any]) -> None:
     session["traffic_review_approved"] = False
     session["traffic_counts_corrected"] = {}
+    if "tpda_input_from_review" in session:
+        session["tpda_input_from_review"] = None
 
 
 def apply_review_update(
@@ -250,6 +252,16 @@ def validate_approval_criteria(
     )
     if hay_desconocidos:
         warnings_approval.append("Existen vehículos con categoría 'DESCONOCIDO' pendientes de clasificar.")
+
+    categorias_finales_invalidas = any(
+        ev.get("include_in_final_count")
+        and ev.get("corrected_category") not in CATEGORIAS_ABC
+        for ev in reviewed_events
+    )
+    if categorias_finales_invalidas:
+        warnings_approval.append(
+            "Existen eventos incluidos sin una categoría vial final válida."
+        )
 
     # Criterio 4: Justificaciones completas
     correcciones_completas = True
@@ -784,7 +796,7 @@ def render() -> None:
                 "reviewer": "Auditor Vial",
                 "is_synthetic": is_synthetic,
                 "warnings": warnings_approval.copy(),
-                "batch_hash": f"batch_{int(time.time())}_{len(reviewed_events)}"
+                "batch_hash": review_payload_fingerprint(reviewed_events, "review")
             }
             
             st.session_state["tpda_input_from_review"] = tpda_input
