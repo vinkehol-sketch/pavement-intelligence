@@ -334,6 +334,10 @@ def render() -> None:
         c1.metric("Observaciones", result.observation_count)
         c2.metric("Categorías", len(result.categories))
         c3.metric("Atípicos", len(result.outlier_record_ids))
+        if result.warnings:
+            st.warning("⚠️ **Advertencias de Validación de Carga / Atípicos:**")
+            for warn in result.warnings:
+                st.write(f"- {warn}")
         with st.expander("Detalle técnico y trazabilidad", expanded=True):
             st.json(result.as_dict())
         st.download_button(

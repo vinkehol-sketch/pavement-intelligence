@@ -515,7 +515,8 @@ def render() -> None:
             "Sentido": "Ascendente (1)" if ev["direction"] == 1 else "Descendente (-1)",
             "Cat. Vial Confirmada (ABC)": ev["corrected_category"] or "",
             "Estado": ev["validation_status"],
-            "Justificación (Corrección/Descarte)": ev["correction_reason"]
+            "Justificación (Corrección/Descarte)": ev["correction_reason"],
+            "Responsable": ev.get("reviewed_by") or ""
         })
 
     df_editor = pd.DataFrame(data_list)
@@ -544,7 +545,8 @@ def render() -> None:
                     "Estado",
                     options=["sin_revisar", "aceptado", "corregido", "descartado", "requiere_revision", "agregado_manualmente"]
                 ),
-                "Justificación (Corrección/Descarte)": st.column_config.TextColumn("Justificación (Corrección/Descarte)")
+                "Justificación (Corrección/Descarte)": st.column_config.TextColumn("Justificación (Corrección/Descarte)"),
+                "Responsable": st.column_config.TextColumn("Responsable", disabled=True)
             }
         )
 
@@ -599,7 +601,8 @@ def render() -> None:
                 )
                 st.markdown(
                     f"• **Cat. Confirmada:** `{ev['corrected_category']}` | "
-                    f"• **Estado:** <span style='color:{badge_color}; font-weight:bold;'>{ev['validation_status'].upper()}</span>",
+                    f"• **Estado:** <span style='color:{badge_color}; font-weight:bold;'>{ev['validation_status'].upper()}</span> | "
+                    f"• **Revisor:** `{ev.get('reviewed_by') or 'N/A'}`",
                     unsafe_allow_html=True
                 )
                 if ev["correction_reason"]:
@@ -648,26 +651,27 @@ def render() -> None:
     # Resumen y Totales
     counts_auto, counts_final, total_auto, total_final = calculate_consolidated_transit(reviewed_events)
 
-    st.markdown("---")
-    st.subheader("📈 Resumen de Tránsito Consolidado")
-    
-    summary_rows = []
-    for cat in CATEGORIAS_ABC:
-        auto_val = counts_auto[cat]
-        final_val = counts_final[cat]
-        diff = final_val - auto_val
-        diff_pct = (diff / auto_val * 100) if auto_val > 0 else (100.0 if diff > 0 else 0.0)
+    if review_approved:
+        st.markdown("---")
+        st.subheader("📈 Resumen de Tránsito Consolidado")
         
-        summary_rows.append({
-            "Categoría ABC": cat,
-            "Conteo IA (Preliminar)": auto_val,
-            "Conteo Corregido (Final)": final_val,
-            "Diferencia Absoluta": f"{diff:+d}" if diff != 0 else "0",
-            "Porcentaje Cambio": f"{diff_pct:+.1f}%" if diff != 0 else "0.0%"
-        })
+        summary_rows = []
+        for cat in CATEGORIAS_ABC:
+            auto_val = counts_auto[cat]
+            final_val = counts_final[cat]
+            diff = final_val - auto_val
+            diff_pct = (diff / auto_val * 100) if auto_val > 0 else (100.0 if diff > 0 else 0.0)
+            
+            summary_rows.append({
+                "Categoría ABC": cat,
+                "Conteo IA (Preliminar)": auto_val,
+                "Conteo Corregido (Final)": final_val,
+                "Diferencia Absoluta": f"{diff:+d}" if diff != 0 else "0",
+                "Porcentaje Cambio": f"{diff_pct:+.1f}%" if diff != 0 else "0.0%"
+            })
 
-    df_summary = pd.DataFrame(summary_rows)
-    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+        df_summary = pd.DataFrame(summary_rows)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
 
     # Tarjetas de Estado
     st.markdown("---")
