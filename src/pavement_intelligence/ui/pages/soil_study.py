@@ -14,6 +14,7 @@ from pavement_intelligence.geotechnics.cbr_workflow import (
     DataOrigin, DesignCBRMode, GeotechnicalResult, calculate_cbr_workflow,
     correlation_catalog, result_is_stale, store_geotechnical_result,
 )
+from pavement_intelligence.ui.pages.resilient_modulus_review_section import render_review_section
 
 
 def _demo_records() -> tuple[CBRRecord, ...]:
@@ -162,6 +163,7 @@ def render() -> None:
     st.download_button("Descargar resultado JSON", json.dumps(result.as_dict(), ensure_ascii=False, indent=2),
                        file_name=f"{result.result_id}.json", mime="application/json",
                        icon=":material/download:")
+    render_review_section(result, source_current=not result_is_stale(result, data))
 
 
 if __name__ == "__main__":

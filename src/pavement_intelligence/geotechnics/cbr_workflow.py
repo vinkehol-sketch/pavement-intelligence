@@ -299,6 +299,21 @@ def _native_modulus(correlation_id: str, cbr: float, coefficients: dict[str, flo
     raise ValueError("Correlación no implementada.")
 
 
+def evaluate_correlation_mpa(
+    correlation: ResilientModulusCorrelation, cbr_percent: float
+) -> float:
+    """Evalúa una correlación vigente sin extrapolar y retorna MPa canónico."""
+    if not math.isfinite(cbr_percent) or cbr_percent <= 0:
+        raise ValueError("El CBR debe ser finito y mayor que cero.")
+    if not correlation.minimum_cbr_percent <= cbr_percent <= correlation.maximum_cbr_percent:
+        raise ValueError("CBR fuera del intervalo de aplicabilidad; no se permite extrapolación.")
+    coefficients = dict(correlation.coefficients)
+    native = _native_modulus(correlation.correlation_id, cbr_percent, coefficients)
+    if not math.isfinite(native) or native <= 0:
+        raise ValueError("La correlación produjo un módulo resiliente no positivo o no finito.")
+    return convert_resilient_modulus(native, correlation.native_output_unit, "MPa")
+
+
 def calculate_cbr_workflow(data: CBRWorkflowInput) -> GeotechnicalResult:
     if not data.study_id.strip() or not data.project_segment.strip() or not data.reviewer.strip():
         raise ValueError("Estudio, tramo y revisor son obligatorios.")
