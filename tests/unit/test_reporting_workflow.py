@@ -15,6 +15,7 @@ from pavement_intelligence.reporting.workflow import (
     ReportMode,
     ReportRequest,
     build_dossier,
+    canonical_administrative_data,
     collect_phase_records,
     dossier_is_stale,
     dossier_json_bytes,
@@ -298,6 +299,115 @@ def test_dossier_staleness_covers_admin_phase_mode_and_history():
     assert dossier_is_stale(
         dossier, session, replace(original_request, include_last_history=True)
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "changed_value"),
+    [
+        ("project_name", "Proyecto vial actualizado"),
+        ("segment", "Tramo B"),
+        ("location", "Cochabamba"),
+        ("organization", "Otra entidad"),
+        ("responsible", "Otra responsable"),
+        ("reviewer", "Otro revisor"),
+        ("observations", "Observación administrativa actualizada"),
+    ],
+)
+def test_every_exported_administrative_field_invalidates_report(field, changed_value):
+    session = complete_session()
+    original_request = request()
+    original = build_dossier(session, original_request)
+    changed_request = replace(
+        original_request,
+        administrative=replace(
+            original_request.administrative, **{field: changed_value}
+        ),
+    )
+    changed = build_dossier(session, changed_request)
+
+    assert changed.request_fingerprint != original.request_fingerprint
+    assert dossier_is_stale(original, session, changed_request)
+    assert [phase.result_fingerprint for phase in changed.phases] == [
+        phase.result_fingerprint for phase in original.phases
+    ]
+    assert [phase.main_result for phase in changed.phases] == [
+        phase.main_result for phase in original.phases
+    ]
+
+
+def test_administrative_canonicalization_is_stable_and_preserves_exact_text():
+    values = {
+        "project_name": "Proyecto Ñ",
+        "segment": "Tramo A",
+        "location": "La Paz",
+        "organization": "Entidad",
+        "responsible": "Responsable",
+        "reviewer": "Revisor",
+        "observations": "Observación",
+    }
+    reversed_values = dict(reversed(tuple(values.items())))
+    first = AdministrativeData(**values)
+    second = AdministrativeData(**reversed_values)
+
+    assert canonical_administrative_data(first) == canonical_administrative_data(second)
+    assert (
+        build_dossier(
+            complete_session(), replace(request(), administrative=first)
+        ).request_fingerprint
+        == build_dossier(
+            complete_session(), replace(request(), administrative=second)
+        ).request_fingerprint
+    )
+
+    spaced = replace(first, project_name=" Proyecto Ñ")
+    assert canonical_administrative_data(spaced)["project_name"] == " Proyecto Ñ"
+    assert (
+        build_dossier(
+            complete_session(), replace(request(), administrative=spaced)
+        ).request_fingerprint
+        != build_dossier(
+            complete_session(), replace(request(), administrative=first)
+        ).request_fingerprint
+    )
+
+
+def test_automatic_generation_date_does_not_change_request_fingerprint():
+    first = build_dossier(complete_session(), request(), generated_at="2026-07-18")
+    second = build_dossier(complete_session(), request(), generated_at="2026-07-19")
+    assert first.request_fingerprint == second.request_fingerprint
+
+
+def test_json_and_pdf_reflect_changed_administrative_data_without_local_paths():
+    changed_admin = admin(
+        project_name="Proyecto Ñ actualizado",
+        segment="Tramo B",
+        location="Cochabamba",
+        organization="Entidad actualizada",
+        responsible="Responsable actualizada",
+        reviewer="Revisor actualizado",
+        observations="Observación actualizada",
+    )
+    dossier = build_dossier(
+        complete_session(), replace(request(), administrative=changed_admin)
+    )
+    json_text = dossier_json_bytes(dossier).decode("utf-8")
+    pdf_text = "\n".join(
+        page.extract_text() or ""
+        for page in PdfReader(
+            __import__("io").BytesIO(dossier_pdf_bytes(dossier))
+        ).pages
+    )
+
+    for value in canonical_administrative_data(changed_admin).values():
+        assert value in json_text
+    for value in (
+        changed_admin.project_name,
+        changed_admin.segment,
+        changed_admin.location,
+        changed_admin.responsible,
+    ):
+        assert value in pdf_text
+    assert "C:\\Users" not in json_text and "C:\\Users" not in pdf_text
 
 
 def test_store_preserves_generation_history_without_overwrite():

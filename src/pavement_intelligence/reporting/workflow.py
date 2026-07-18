@@ -189,6 +189,30 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def canonical_administrative_data(data: AdministrativeData) -> dict[str, str]:
+    """Representa todos los campos administrativos de forma determinista.
+
+    Los nombres se ordenan y los valores se conservan exactamente como fueron
+    ingresados: no se recortan espacios ni se normaliza Unicode. La limpieza de
+    rutas locales sigue siendo responsabilidad de ``_fingerprint``.
+    """
+    values = asdict(data)
+    return {key: values[key] for key in sorted(values)}
+
+
+def _canonical_report_request(request: ReportRequest) -> dict[str, Any]:
+    """Construye la solicitud estable sin fechas automáticas ni datos binarios."""
+    return {
+        "administrative": canonical_administrative_data(request.administrative),
+        "format_version": request.format_version,
+        "generator_version": request.generator_version,
+        "include_last_history": request.include_last_history,
+        "included_phases": list(request.included_phases),
+        "mode": request.mode,
+        "partial_report_acknowledged": request.partial_report_acknowledged,
+    }
+
+
 def _warnings(result: Any) -> tuple[str, ...]:
     values = (
         result.get("warnings", ())
@@ -456,7 +480,15 @@ def build_dossier(
             if (values := session.get(key) or ())
         )
     at = generated_at or datetime.now(timezone.utc).isoformat()
-    fp = _fingerprint((request, selected, warnings, history, GENERATOR_VERSION))
+    fp = _fingerprint(
+        (
+            _canonical_report_request(request),
+            selected,
+            warnings,
+            history,
+            GENERATOR_VERSION,
+        )
+    )
     state = "COMPLETO_DEMOSTRATIVO" if not incomplete else "PARCIAL_DEMOSTRATIVO"
     return IntegratedDossier(
         "dossier-" + _fingerprint((fp, at))[:16],
