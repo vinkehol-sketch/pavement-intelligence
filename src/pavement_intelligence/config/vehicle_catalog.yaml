@@ -1,0 +1,208 @@
+# ============================================================
+# Catálogo de Clasificación Vehicular — Pavement Intelligence
+# Referencia: Administradora Boliviana de Carreteras (ABC)
+# Versión: 1.0.0 — Configurable para adaptación a formatos oficiales
+# ============================================================
+
+metadata:
+  version: "1.0.0"
+  country: "Bolivia"
+  reference: "Administradora Boliviana de Carreteras (ABC)"
+  notes: >
+    Catálogo inicial configurable. Adaptar al formato oficial de aforo de la ABC.
+    Las clases YOLO son aproximaciones basadas en el dataset COCO y pueden requerir
+    ajuste con modelos entrenados específicamente para la clasificación boliviana.
+  last_updated: "2026-07-15"
+
+categories:
+  - id: "MOTO"
+    code: "M"
+    name: "Motocicleta"
+    description: "Motocicleta, mototaxi, ciclomotor de 2 o 3 ruedas"
+    vehicle_class: "liviano"
+    typical_axle_count: 2
+    yolo_classes: ["motorcycle"]          # clases COCO aproximadas
+    aforo_group: "livianos"
+    esal_group: "motos"
+    default_load_kn_per_axle: [1.0, 1.0]
+    default_axle_types: ["simple_single", "simple_single"]
+    typical_gross_weight_kn: 2.5
+    passenger_capacity: 2
+    notes: "Incluye mototaxis (triciclos motorizados de 3 ruedas). Impacto en pavimento despreciable."
+
+  - id: "AUTO"
+    code: "A"
+    name: "Automóvil"
+    description: "Auto, sedán, hatchback, SUV de uso privado"
+    vehicle_class: "liviano"
+    typical_axle_count: 2
+    yolo_classes: ["car"]
+    aforo_group: "livianos"
+    esal_group: "autos"
+    default_load_kn_per_axle: [5.0, 4.0]
+    default_axle_types: ["simple_single", "simple_single"]
+    typical_gross_weight_kn: 15.0
+    passenger_capacity: 5
+    notes: ""
+
+  - id: "CAMIONETA"
+    code: "C"
+    name: "Camioneta"
+    description: "Pickup, camioneta 4x4, furgoneta de carga liviana"
+    vehicle_class: "liviano"
+    typical_axle_count: 2
+    yolo_classes: ["car", "truck"]        # COCO no diferencia bien camionetas
+    aforo_group: "livianos"
+    esal_group: "camionetas"
+    default_load_kn_per_axle: [8.0, 7.0]
+    default_axle_types: ["simple_single", "simple_dual"]
+    typical_gross_weight_kn: 30.0
+    passenger_capacity: 5
+    notes: "Clasificación visual puede requerir corrección manual por operador."
+
+  - id: "MINIBUS"
+    code: "MB"
+    name: "Minibús"
+    description: "Minibús de transporte público o escolar (hasta ~20 pasajeros)"
+    vehicle_class: "mediano"
+    typical_axle_count: 2
+    yolo_classes: ["bus"]
+    aforo_group: "buses"
+    esal_group: "buses_livianos"
+    default_load_kn_per_axle: [35.0, 55.0]
+    default_axle_types: ["simple_single", "simple_dual"]
+    typical_gross_weight_kn: 80.0
+    passenger_capacity: 20
+    notes: "Muy común en transporte urbano boliviano (La Paz, Cochabamba, Santa Cruz)."
+
+  - id: "BUS"
+    code: "B"
+    name: "Bus"
+    description: "Bus de pasajeros de largo aliento, interprovincial, flotas"
+    vehicle_class: "pesado"
+    typical_axle_count: 2
+    yolo_classes: ["bus"]
+    aforo_group: "buses"
+    esal_group: "buses_pesados"
+    default_load_kn_per_axle: [50.0, 90.0]
+    default_axle_types: ["simple_single", "simple_dual"]
+    typical_gross_weight_kn: 160.0
+    passenger_capacity: 55
+    notes: "Rutas interurbanas e interprovinciales. Eje trasero frecuentemente sobrecargado."
+
+  - id: "C2"
+    code: "C2"
+    name: "Camión Rígido 2 Ejes"
+    description: "Camión de dos ejes, carga general"
+    vehicle_class: "pesado"
+    typical_axle_count: 2
+    yolo_classes: ["truck"]
+    aforo_group: "camiones_rigidos"
+    esal_group: "c2"
+    default_load_kn_per_axle: [50.0, 100.0]
+    default_axle_types: ["simple_single", "simple_dual"]
+    typical_gross_weight_kn: 170.0
+    passenger_capacity: 2
+    notes: "Eje trasero puede ser simple o doble. Muy frecuente en distribución urbana."
+
+  - id: "C3"
+    code: "C3"
+    name: "Camión Rígido 3 Ejes"
+    description: "Camión de tres ejes con eje tándem trasero"
+    vehicle_class: "pesado"
+    typical_axle_count: 3
+    yolo_classes: ["truck"]
+    aforo_group: "camiones_rigidos"
+    esal_group: "c3"
+    default_load_kn_per_axle: [50.0, 80.0, 80.0]
+    default_axle_types: ["simple_single", "simple_dual", "simple_dual"]
+    typical_gross_weight_kn: 240.0
+    passenger_capacity: 2
+    notes: "Tándem trasero común en camiones bolivianos. El tercer eje puede ser levadizo."
+
+  - id: "TRACTOCAMION"
+    code: "T2"
+    name: "Tractocamión"
+    description: "Tractocamión sin semirremolque o con carrocería propia (cabeza tractora)"
+    vehicle_class: "pesado"
+    typical_axle_count: 3
+    yolo_classes: ["truck"]
+    aforo_group: "articulados"
+    esal_group: "tractocamion"
+    default_load_kn_per_axle: [50.0, 80.0, 80.0]
+    default_axle_types: ["simple_single", "tandem", "tandem"]
+    typical_gross_weight_kn: 270.0
+    passenger_capacity: 2
+    notes: "Cabeza tractora sola. Para tráiler completo usar categoría ARTICULADO."
+
+  - id: "ARTICULADO"
+    code: "T3S2"
+    name: "Vehículo Articulado"
+    description: "Tractocamión con semirremolque (tráiler o semi-tráiler)"
+    vehicle_class: "pesado"
+    typical_axle_count: 5
+    yolo_classes: ["truck"]
+    aforo_group: "articulados"
+    esal_group: "articulado"
+    default_load_kn_per_axle: [50.0, 80.0, 80.0, 80.0, 80.0]
+    default_axle_types: ["simple_single", "tandem", "tandem", "tandem", "tandem"]
+    typical_gross_weight_kn: 450.0
+    passenger_capacity: 2
+    notes: >
+      Configuración T3S2 (3 ejes tractora + 2 tándem remolque) más común en rutas
+      interurbanas de Bolivia. Configuraciones T2S2, T3S3 también presentes.
+      Verificar configuración real con pesaje.
+
+  - id: "OTRO_PESADO"
+    code: "OP"
+    name: "Otro Vehículo Pesado"
+    description: "Maquinaria pesada, vehículo especial, grúa, cisterna, hormigonera"
+    vehicle_class: "especial"
+    typical_axle_count: 2
+    yolo_classes: ["truck"]
+    aforo_group: "especiales"
+    esal_group: "especial"
+    default_load_kn_per_axle: [60.0, 100.0]
+    default_axle_types: ["simple_single", "simple_dual"]
+    typical_gross_weight_kn: 200.0
+    passenger_capacity: 2
+    notes: "Requiere registro manual de la configuración real de ejes y cargas."
+
+# ============================================================
+# Grupos de aforo para formularios estándar ABC Bolivia
+# ============================================================
+aforo_groups:
+  livianos:
+    label: "Vehículos Livianos"
+    ids: ["MOTO", "AUTO", "CAMIONETA"]
+  buses:
+    label: "Buses y Minibuses"
+    ids: ["MINIBUS", "BUS"]
+  camiones_rigidos:
+    label: "Camiones Rígidos"
+    ids: ["C2", "C3"]
+  articulados:
+    label: "Vehículos Articulados"
+    ids: ["TRACTOCAMION", "ARTICULADO"]
+  especiales:
+    label: "Vehículos Especiales"
+    ids: ["OTRO_PESADO"]
+
+# Categorías que se consideran pesadas (para ESAL y reportes)
+heavy_vehicle_ids:
+  - "BUS"
+  - "C2"
+  - "C3"
+  - "TRACTOCAMION"
+  - "ARTICULADO"
+  - "OTRO_PESADO"
+
+# Factor de camión por defecto por categoría (para estimaciones rápidas)
+# Nota: estos son factores globales, no reemplazan los FEC de esal_factors.yaml
+default_truck_factor:
+  BUS: 0.97
+  C2: 1.08
+  C3: 1.98
+  TRACTOCAMION: 2.51
+  ARTICULADO: 3.45
+  OTRO_PESADO: 2.00

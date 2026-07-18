@@ -1,0 +1,54 @@
+# Entornos
+.venv/
+.venv-new/
+.venv_migrated_broken/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Config
+.env
+
+# Data
+data/raw/*
+!data/raw/.gitkeep
+data/videos/*
+!data/videos/.gitkeep
+!data/videos/samples/
+!data/videos/samples/*.mp4
+!data/videos/samples/
+!data/videos/samples/*.mp4
+data/models/*
+!data/models/.gitkeep
+!data/models/yolov8n.pt
+!data/models/yolov8s.pt
+/yolov*.pt
+data/processed/*
+!data/processed/.gitkeep
+*.db
+*.sqlite
+
+# Testing & Logs
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDEs
+.idea/
+.vscode/
+
+# Sistema operativo y recuperacion local
+.DS_Store
+Thumbs.db
+.git_invalid_recovered/

@@ -1,0 +1,102 @@
+# ============================================================
+# Catálogo de Tipos de Eje y Cargas de Referencia
+# Metodología: AASHTO 93 — Ejes Equivalentes de 18 kip (≈ 80 kN)
+# Referencia: AASHTO Guide for Design of Pavement Structures, 1993
+# ============================================================
+
+metadata:
+  version: "1.0.0"
+  standard_axle_kn: 80.0
+  standard_axle_kip: 18.0
+  standard_axle_lb: 18000.0
+  reference: "AASHTO Guide for Design of Pavement Structures, 1993"
+  last_updated: "2026-07-15"
+  notes: >
+    Los valores de carga máxima legal son de referencia para Bolivia (ABC).
+    Verificar con la normativa vigente antes de uso en documentos legales.
+
+# ============================================================
+# Tipos de eje reconocidos por el sistema
+# ============================================================
+axle_types:
+  - id: "simple_single"
+    name: "Eje Simple de Rueda Simple (ESRS)"
+    code: "ESRS"
+    description: >
+      Un eje con una rueda en cada extremo. Típicamente el eje frontal
+      de vehículos pesados y el único eje de livianos.
+    max_legal_load_kn: 53.0
+    max_legal_load_kip: 11.9
+    typical_range_kn: [1.0, 53.0]
+    esal_exponent: 4.0          # exponente aproximado de Goodman
+    notes: "Eje frontal típico de vehículos pesados. Máx. 53 kN en Bolivia."
+
+  - id: "simple_dual"
+    name: "Eje Simple de Rueda Doble (ESRD)"
+    code: "ESRD"
+    description: >
+      Un eje con ruedas dobles (duales) en cada extremo. El eje trasero
+      más común en camiones rígidos y buses.
+    max_legal_load_kn: 80.0
+    max_legal_load_kip: 18.0
+    typical_range_kn: [20.0, 80.0]
+    esal_exponent: 4.0
+    notes: "Eje trasero más común en camiones rígidos. Máx. 80 kN en Bolivia."
+
+  - id: "tandem"
+    name: "Eje Tándem (ET)"
+    code: "ET"
+    description: >
+      Dos ejes contiguos con separación típica de 1.2 a 1.8 m,
+      generalmente con ruedas dobles en cada extremo.
+    max_legal_load_kn: 160.0
+    max_legal_load_kip: 36.0
+    typical_range_kn: [80.0, 160.0]
+    esal_exponent: 4.0
+    notes: "Conjunto de dos ejes. Máx. 160 kN para el conjunto tándem en Bolivia."
+
+  - id: "tridem"
+    name: "Eje Trídem (ETR)"
+    code: "ETR"
+    description: >
+      Tres ejes contiguos con separación similar a tándem.
+      Común en remolques de alto tonelaje y vehículos de construcción.
+    max_legal_load_kn: 215.0
+    max_legal_load_kip: 48.3
+    typical_range_kn: [120.0, 215.0]
+    esal_exponent: 4.0
+    notes: "Trídem. Máx. 215 kN para el conjunto en Bolivia. Poco frecuente."
+
+  - id: "unknown"
+    name: "Tipo de Eje Desconocido"
+    code: "UNK"
+    description: "Tipo de eje no determinado. Usar valor de catálogo por defecto."
+    max_legal_load_kn: 80.0
+    max_legal_load_kip: 18.0
+    typical_range_kn: [0.0, 80.0]
+    esal_exponent: 4.0
+    notes: "Valor por defecto cuando el tipo no puede determinarse visualmente."
+
+# ============================================================
+# Cargas legales máximas Bolivia — Referencia ABC
+# ============================================================
+# ADVERTENCIA: Verificar con normativa vigente antes de uso legal/oficial
+bolivia_legal_limits:
+  gross_weight_max_kn: 450.0            # peso bruto máximo total
+  gross_weight_max_ton: 45.88           # equivalente en toneladas métricas
+  front_axle_max_kn: 53.0              # eje frontal simple rueda simple
+  rear_axle_single_max_kn: 80.0        # eje trasero simple rueda doble
+  rear_axle_tandem_max_kn: 160.0       # eje tándem
+  rear_axle_tridem_max_kn: 215.0       # eje trídem
+  note: >
+    Valores de referencia basados en límites típicos ABC Bolivia.
+    Confirmar con Resolución Ministerial vigente y normativa de la ABC
+    antes de aplicar en estudios formales.
+
+# ============================================================
+# Tolerancias de pesaje para datos de campo
+# ============================================================
+weighing_tolerances:
+  wim_accuracy_percent: 5.0            # precisión típica de balanza WIM dinámica
+  portable_scale_accuracy_percent: 2.0  # precisión balanza portátil estática
+  legal_tolerance_percent: 5.0         # tolerancia legal antes de infracción

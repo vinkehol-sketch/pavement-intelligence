@@ -1,0 +1,123 @@
+# ============================================================
+# Factores de Equivalencia de Carga (FEC) por Categoría Vehicular
+# Metodología: AASHTO 93 para Pavimento Flexible
+# Hipótesis: SN = 3.0 (valor inicial por defecto, proceso iterativo)
+# ============================================================
+# ADVERTENCIA: ESTOS VALORES SON APROXIMACIONES PARA EL PROTOTIPO
+# Los FEC deben recalcularse con cargas reales de pesaje (WIM o balanza
+# portátil) una vez disponibles. Ver docs/assumptions.md.
+# ============================================================
+
+metadata:
+  version: "1.0.0"
+  method: "AASHTO93_FLEXIBLE"
+  assumed_sn: 3.0
+  assumed_pt: 2.5
+  standard_axle_kn: 80.0
+  standard_axle_kip: 18.0
+  data_quality: "ESTIMATED"
+  last_updated: "2026-07-15"
+  warning: >
+    Los FECs deben recalcularse con cargas reales de pesaje (WIM o balanza
+    portátil). Los valores actuales son estimaciones típicas para pavimento
+    flexible con SN = 3.0. El sistema realizará el cálculo iterativo una vez
+    disponibles los datos de pesaje reales.
+  references:
+    - "AASHTO Guide for Design of Pavement Structures, 1993. Apéndice D, Tablas de FEC."
+    - "Cal y Mayor & Cárdenas, Ingeniería de Tránsito, 2007."
+    - "Montejo Fonseca, Ingeniería de Pavimentos, 2006."
+
+# ============================================================
+# FEC total por categoría vehicular (suma de todos los ejes)
+# Estos valores corresponden al FEC vehicular completo (todos los ejes)
+# para el SN asumido y condiciones típicas bolivianas.
+# ============================================================
+vehicle_fec:
+  MOTO: 0.0001        # impacto despreciable
+  AUTO: 0.0004        # vehículo liviano
+  CAMIONETA: 0.010    # liviano cargado
+  MINIBUS: 0.18       # mediano, eje trasero rueda doble
+  BUS: 0.97           # pesado, impacto significativo
+  C2: 1.08            # camión 2 ejes, carga typical
+  C3: 1.98            # camión 3 ejes, tándem trasero
+  TRACTOCAMION: 2.51  # cabeza tractora sola, tándem propulsión
+  ARTICULADO: 3.45    # tráiler completo T3S2 (5 ejes)
+  OTRO_PESADO: 2.00   # valor medio para categoría especial
+
+# ============================================================
+# FEC desglosado por eje (valores típicos para cada tipo de eje)
+# Para uso cuando se dispone de cargas individuales por eje
+# Fórmula aproximada (Goodman): FEC = (P_eje / P_estándar)^4
+# Donde P_estándar = 80 kN para eje simple y 160 kN para tándem
+# ============================================================
+axle_fec_by_type_and_load:
+  simple_single:
+    # load_kn: fec_value (interpolación de tabla AASHTO D-3)
+    10.0: 0.000242
+    20.0: 0.003881
+    30.0: 0.01960
+    40.0: 0.06177
+    50.0: 0.1448
+    53.0: 0.1779     # carga legal máxima Bolivia
+    60.0: 0.2923
+    70.0: 0.5415
+    80.0: 1.000       # eje estándar
+  simple_dual:
+    20.0: 0.000591
+    40.0: 0.00944
+    60.0: 0.07168
+    70.0: 0.1278
+    80.0: 0.1940      # eje estándar equivalente para rueda doble
+    90.0: 0.3080
+    100.0: 0.4560
+    120.0: 0.9620
+    130.0: 1.3900
+    140.0: 1.9600
+  tandem:
+    80.0: 0.0598
+    100.0: 0.1243
+    120.0: 0.2280
+    140.0: 0.3846
+    160.0: 0.6097    # carga legal máxima Bolivia tándem
+    180.0: 0.9313
+    200.0: 1.3750
+  tridem:
+    120.0: 0.0630
+    150.0: 0.1410
+    180.0: 0.2840
+    215.0: 0.5970    # carga legal máxima Bolivia trídem
+
+# ============================================================
+# Método de cálculo para FEC detallado
+# ============================================================
+axle_fec_method: "AASHTO93_TABLE"
+interpolation_method: "linear"
+note: >
+  Los FEC exactos se calculan interpolando en tablas AASHTO 93 (Apéndice D)
+  por tipo de eje, carga real y número estructural (SN). El proceso es iterativo:
+  se asume un SN inicial, se calculan ESALs, se diseña el pavimento, se verifica
+  que el SN resultante sea compatible con el SN asumido en FEC. Repetir hasta
+  convergencia (diferencia < 0.5 en SN).
+
+# ============================================================
+# Coeficientes de distribución para aforo (cuando no hay pesaje)
+# Permite estimar la distribución de cargas a partir de la categoría
+# ============================================================
+load_distribution:
+  note: "Distribución aproximada de configuración de carga por categoría"
+  MINIBUS:
+    typical_front_load_percent: 40.0
+    typical_rear_load_percent: 60.0
+  BUS:
+    typical_front_load_percent: 35.0
+    typical_rear_load_percent: 65.0
+  C2:
+    typical_front_load_percent: 30.0
+    typical_rear_load_percent: 70.0
+  C3:
+    typical_front_load_percent: 22.0
+    typical_tandem_load_percent: 78.0
+  ARTICULADO:
+    typical_steering_percent: 11.0
+    typical_drive_tandem_percent: 42.0
+    typical_trailer_tandem_percent: 47.0
