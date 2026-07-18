@@ -109,3 +109,56 @@ No broken requirements found.
 **APROBADO PARA AUDITAR FASE 3 DE ESAL**
 
 Esta conclusión habilita una auditoría independiente del cálculo formal. No declara la Fase 3 lista para Diseño ni autoriza publicar W18 en Suelos, Diseño AASHTO 93 o Reportes.
+
+## 11. Entrega controlada Fase 3A
+
+La transferencia formal incorpora un contrato inmutable por vehículo (`ESALVehicleInput`)
+y por grupo (`ESALAxleGroupInput`). Cada vehículo conserva el identificador de Pesaje,
+categoría confirmada, referencia de origen, peso bruto, condición, advertencias, fecha y
+versión. Cada grupo conserva orden, tipo, multiplicidad física, carga total, carga media
+individual, unidad canónica, fuente y observaciones.
+
+### Fuentes de carga
+
+- `WIM_MEDIDO`: observación cuyo tipo de fuente de Pesaje es WIM.
+- `MANUAL_VERIFICADO`: medición estática, importada o manual respaldada por revisor.
+- `ESTIMADO_POR_CATEGORIA`: condición asumida; nunca se etiqueta como medida y exige
+  reconocimiento visible antes de validar ESAL.
+- `DEMOSTRATIVO_SINTETICO`: carga sintética; exige aceptación y solo habilita demostración.
+
+El resultado informa ESAL del lote observado por categoría y fuente, además del porcentaje
+de vehículos WIM, manuales, estimados y sintéticos. Este total de muestra es distinto del W18
+proyectado durante el periodo de diseño.
+
+### Unidades y configuraciones
+
+La unidad interna permanece en kN. Las conversiones explícitas admitidas son:
+
+- `kg` y `kgf`: `valor × 0,00980665`;
+- tonelada-fuerza métrica: `valor × 9,80665`;
+- `lb`/`lbf`: `valor × 0,0044482216152605`;
+- `kip`: `valor × 4,4482216152605`.
+
+Simple simple/dual representa un eje físico; tándem, dos; trídem, tres. Se bloquean
+grupos vacíos, posiciones duplicadas/no positivas, tipos desconocidos, cargas no positivas,
+categorías sin confirmar y discrepancias peso bruto/suma de grupos mayores que la tolerancia
+transferida desde Pesaje.
+
+### Ejemplos numéricos reproducibles
+
+Con la aproximación vigente de cuarta potencia:
+
+- simple dual de 80 kN: `(80/80)^4 = 1,0` ESAL;
+- tándem de 142 kN: `(142/142)^4 = 1,0` ESAL;
+- trídem de 213 kN: `(213/213)^4 = 1,0` ESAL;
+- vehículo con simple de 40 kN y simple dual de 80 kN:
+  `(40/80)^4 + (80/80)^4 = 1,0625` ESAL;
+- lote de dos vehículos iguales: `2,1250` ESAL observados.
+
+### Limitaciones y relación futura con AASHTO 93
+
+La ley de cuarta potencia se identifica como aproximación vigente y conserva la advertencia
+documental: las planillas académicas auditadas no justifican reemplazarla. No se introducen
+SN, serviciabilidad, confiabilidad, desviación estándar, módulo resiliente ni espesores. El
+resultado no se escribe en `esal_result` ni es consumido por Diseño; una integración futura
+de AASHTO 93 requerirá fuente primaria, parámetros formales y una tarea separada.

@@ -226,10 +226,14 @@ def convert_to_kn(value: Any, unit: str) -> float:
     factors = {
         "kn": 1.0,
         "kg": 0.00980665,
+        "kgf": 0.00980665,
         "t": 9.80665,
         "ton": 9.80665,
         "tonelada": 9.80665,
         "toneladas": 9.80665,
+        "lb": 0.0044482216152605,
+        "lbf": 0.0044482216152605,
+        "kip": 4.4482216152605,
     }
     if normalized not in factors:
         raise ValueError(f"Unidad de carga no reconocida: {unit}.")

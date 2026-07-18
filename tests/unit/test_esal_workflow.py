@@ -8,6 +8,7 @@ from pavement_intelligence.esal.workflow import (
     EQUIVALENCE_METHOD,
     ESALWorkflowInput,
     ESALWorkflowStatus,
+    LoadSource,
     STANDARD_SINGLE_AXLE_KIP,
     STANDARD_SINGLE_AXLE_KN,
     build_esal_input_from_weighing,
@@ -31,7 +32,11 @@ from pavement_intelligence.weighing.workflow import (
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def weighing_result(*, synthetic=False, axles=(("simple_dual", 80.0),), observations=1):
+def weighing_result(
+    *, synthetic=False, axles=(("simple_dual", 80.0),), observations=1,
+    source_type=WeighingSourceType.STATIC_SCALE,
+    condition=None,
+):
     tpda = calculate_tpda_workflow(TPDAWorkflowInput(
         batch_id="esal-case", source="manual.csv", data_origin="AFORO_REVISADO",
         automatic_counts={"AUTO": 100, "C2": 10}, corrected_counts={"AUTO": 100, "C2": 10},
@@ -46,14 +51,14 @@ def weighing_result(*, synthetic=False, axles=(("simple_dual", 80.0),), observat
     transfer = build_weighing_input_from_tpda(tpda, allow_demonstration=synthetic)
     records = tuple(build_manual_observation(
         category="C2", gross_weight=sum(load for _, load in axles), axle_groups=axles,
-        unit="kN", source_type=WeighingSourceType.STATIC_SCALE,
+        unit="kN", source_type=source_type,
         source_reference="balanza-controlada", reviewer="Auditor Pesaje",
-        condition=WeighingCondition.SYNTHETIC if synthetic else WeighingCondition.MEASURED,
+        condition=condition or (WeighingCondition.SYNTHETIC if synthetic else WeighingCondition.MEASURED),
         timestamp=f"2026-07-17T20:0{i}:00+00:00",
     ) for i in range(observations))
     return calculate_weighing_workflow(WeighingWorkflowInput(
         tpda_transfer=transfer, observations=records,
-        source_type=WeighingSourceType.STATIC_SCALE,
+        source_type=source_type,
         source_reference="balanza-controlada", source_date="2026-07-17",
         reviewer="Auditor Pesaje", validation_state="REVISADO",
         synthetic_acknowledged=synthetic,
@@ -73,6 +78,12 @@ def test_accepts_fit_weighing_and_contract_is_complete():
     assert contract.observation_count == 1
     assert contract.canonical_weight_unit == "kN"
     assert contract.base_tpda_by_category == {"AUTO": 100.0, "C2": 10.0}
+    vehicle = contract.vehicles[0]
+    assert vehicle.vehicle_id == result.observations[0].record_id
+    assert vehicle.approved_category == "C2"
+    assert vehicle.canonical_unit == "kN"
+    assert vehicle.axle_groups[0].physical_axle_count == 1
+    assert vehicle.axle_groups[0].individual_axle_load_kn == 80.0
 
 
 @pytest.mark.parametrize("change,match", [
@@ -110,6 +121,21 @@ def test_existing_equivalence_functions_give_one_at_reference_load(axle, load):
     assert result.axle_factors[0].reference_load_kn == load
 
 
+def test_load_sources_are_explicit_and_never_promote_estimated_to_measured():
+    wim = build_esal_input_from_weighing(weighing_result(source_type=WeighingSourceType.WIM))
+    assert wim.vehicles[0].load_source == LoadSource.WIM_MEASURED.value
+    manual = build_esal_input_from_weighing(weighing_result())
+    assert manual.vehicles[0].load_source == LoadSource.MANUAL_VERIFIED.value
+    estimated_result = weighing_result(condition=WeighingCondition.ASSUMED)
+    estimated = build_esal_input_from_weighing(estimated_result)
+    assert estimated.vehicles[0].load_source == LoadSource.ESTIMATED_BY_CATEGORY.value
+    assert "no corresponde a una medición" in estimated.vehicles[0].quality_warnings[0]
+    synthetic = build_esal_input_from_weighing(
+        weighing_result(synthetic=True), allow_demonstration=True
+    )
+    assert synthetic.vehicles[0].load_source == LoadSource.SYNTHETIC_DEMONSTRATION.value
+
+
 def test_vehicle_and_category_truck_factor_are_reproducible():
     result = calculate_esal_workflow(esal_input(result=weighing_result(
         axles=(("simple_single", 40.0), ("simple_dual", 80.0)), observations=2)))
@@ -117,6 +143,13 @@ def test_vehicle_and_category_truck_factor_are_reproducible():
     assert result.vehicle_factors[0].vehicle_factor == pytest.approx(expected)
     assert result.truck_factors_by_category[0].mean_truck_factor == pytest.approx(expected)
     assert result.truck_factors_by_category[0].observed_vehicles == 2
+    assert result.analyzed_batch_vehicle_count == 2
+    assert result.analyzed_batch_esal == pytest.approx(expected * 2)
+    assert result.batch_esal_by_category == {"C2": pytest.approx(expected * 2)}
+    assert result.batch_esal_by_load_source == {
+        LoadSource.MANUAL_VERIFIED.value: pytest.approx(expected * 2)
+    }
+    assert result.manual_vehicle_percent == pytest.approx(100.0)
 
 
 def test_small_independent_numerical_case_fdd_fdc_period_and_light_traffic():
@@ -161,6 +194,15 @@ def test_synthetic_state_is_blocked_until_acknowledged_then_demo_only():
     assert demo.is_synthetic
 
 
+def test_estimated_state_is_blocked_until_visibly_acknowledged():
+    data = esal_input(weighing_result(condition=WeighingCondition.ASSUMED))
+    blocked = calculate_esal_workflow(data)
+    assert blocked.methodological_status == ESALWorkflowStatus.BLOCKED_BY_ESTIMATED_DATA.value
+    acknowledged = calculate_esal_workflow(replace(data, estimated_data_acknowledged=True))
+    assert acknowledged.methodological_status == ESALWorkflowStatus.VALID_TO_CONTINUE.value
+    assert acknowledged.estimated_vehicle_percent == pytest.approx(100.0)
+
+
 def test_real_result_is_fit_for_future_audit_and_uses_declared_standard():
     result = calculate_esal_workflow(esal_input())
     assert result.methodological_status == ESALWorkflowStatus.VALID_TO_CONTINUE.value
@@ -182,6 +224,25 @@ def test_invalid_load_and_incomplete_configuration_are_blocked():
     empty_transfer = replace(data.weighing_transfer, observations=(empty_obs,))
     result = calculate_esal_workflow(replace(data, weighing_transfer=empty_transfer))
     assert result.methodological_status == ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION.value
+
+
+def test_gross_weight_mismatch_and_unconfirmed_truck_are_blocked():
+    data = esal_input()
+    obs = data.weighing_transfer.observations[0]
+    mismatch = replace(obs, gross_weight_kn=160.0)
+    transfer = replace(data.weighing_transfer, observations=(mismatch,))
+    result = calculate_esal_workflow(replace(data, weighing_transfer=transfer))
+    assert result.methodological_status == ESALWorkflowStatus.BLOCKED_BY_LOADS.value
+    assert result.rejected_vehicle_ids == (obs.record_id,)
+    assert result.analyzed_batch_vehicle_count == 0
+    assert result.analyzed_batch_esal == 0
+    assert not result.vehicle_factors[0].included
+
+    truck = replace(obs, category="CAMION")
+    transfer = replace(data.weighing_transfer, observations=(truck,))
+    result = calculate_esal_workflow(replace(data, weighing_transfer=transfer))
+    assert result.methodological_status == ESALWorkflowStatus.BLOCKED_BY_CLASSIFICATION.value
+    assert result.pending_vehicle_ids == (obs.record_id,)
 
 
 def test_fingerprints_and_staleness_cover_input_weighing_method_and_standard():

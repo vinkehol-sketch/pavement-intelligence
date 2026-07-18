@@ -116,6 +116,17 @@ def render() -> None:
         synthetic_ack = st.checkbox(
             "Reconozco que TPDA/Pesaje son sintéticos y el ESAL es demostrativo"
         )
+    has_estimated = any(
+        item.load_source == "ESTIMADO_POR_CATEGORIA" for item in transfer.vehicles
+    )
+    estimated_ack = False
+    if has_estimated:
+        st.warning(
+            "El lote contiene cargas ESTIMADO_POR_CATEGORIA; no son mediciones WIM ni manuales verificadas."
+        )
+        estimated_ack = st.checkbox(
+            "Reconozco visiblemente que las cargas estimadas no son datos medidos"
+        )
     assumptions_text = st.text_area(
         "Supuestos adicionales",
         value="Factores camión derivados únicamente de observaciones incluidas.",
@@ -128,6 +139,7 @@ def render() -> None:
         outlier_treatment=outlier_treatment,
         reviewer=reviewer,
         synthetic_acknowledged=synthetic_ack,
+        estimated_data_acknowledged=estimated_ack,
         assumptions=(assumptions_text,),
     )
 
@@ -189,6 +201,22 @@ def render() -> None:
     )
     st.dataframe(axle_frame, hide_index=True, use_container_width=True)
 
+    vehicle_frame = pd.DataFrame(
+        [
+            {
+                "Vehículo": item.observation_id,
+                "Categoría": item.category,
+                "Fuente de carga": item.load_source,
+                "Condición de Pesaje": item.weighing_condition,
+                "ESAL del vehículo": item.vehicle_factor,
+                "Incluido": item.included,
+                "Motivo": item.exclusion_reason,
+            }
+            for item in result.vehicle_factors
+        ]
+    )
+    st.dataframe(vehicle_frame, hide_index=True, use_container_width=True)
+
     truck_frame = pd.DataFrame(
         [
             {
@@ -228,6 +256,21 @@ def render() -> None:
     c1.metric("ESAL anual inicial", f"{result.initial_annual_esal:,.0f}")
     c2.metric("ESAL acumulado", f"{result.accumulated_esal:,.0f}")
     c3.metric("W18 de diseño", f"{result.total_design_esal_w18:,.0f}")
+
+    st.subheader("6. Resumen del lote de cargas analizado")
+    s1, s2 = st.columns(2)
+    s1.metric("Vehículos incluidos", result.analyzed_batch_vehicle_count)
+    s2.metric("ESAL del lote", f"{result.analyzed_batch_esal:,.4f}")
+    st.dataframe(pd.DataFrame([
+        {"Fuente de carga": "WIM_MEDIDO", "Porcentaje de vehículos": result.measured_vehicle_percent},
+        {"Fuente de carga": "MANUAL_VERIFICADO", "Porcentaje de vehículos": result.manual_vehicle_percent},
+        {"Fuente de carga": "ESTIMADO_POR_CATEGORIA", "Porcentaje de vehículos": result.estimated_vehicle_percent},
+        {"Fuente de carga": "DEMOSTRATIVO_SINTETICO", "Porcentaje de vehículos": result.synthetic_vehicle_percent},
+    ]), hide_index=True, use_container_width=True)
+    st.caption(
+        f"Rechazados: {len(result.rejected_vehicle_ids)} | Pendientes: {len(result.pending_vehicle_ids)}. "
+        "Las fuentes se muestran mediante texto y no solo mediante color."
+    )
 
     annual_frame = pd.DataFrame(
         [

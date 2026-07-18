@@ -1,7 +1,7 @@
 """Flujo formal Pesaje → ESAL, aislado de Streamlit y de Diseño."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
@@ -48,6 +48,9 @@ class ESALWorkflowStatus(str, Enum):
     BLOCKED_BY_UNITS = "BLOQUEADO_POR_UNIDADES"
     BLOCKED_BY_SYNTHETIC_DATA = "BLOQUEADO_POR_DATOS_SINTETICOS"
     BLOCKED_BY_EMPTY_SAMPLE = "BLOQUEADO_POR_MUESTRA_VACIA"
+    BLOCKED_BY_CLASSIFICATION = "BLOQUEADO_POR_CLASIFICACION"
+    BLOCKED_BY_LOADS = "BLOQUEADO_POR_CARGAS"
+    BLOCKED_BY_ESTIMATED_DATA = "BLOQUEADO_POR_DATOS_ESTIMADOS"
     STALE = "DESACTUALIZADO_REQUIERE_RECALCULO"
 
 
@@ -55,6 +58,40 @@ class DesignReadiness(str, Enum):
     FIT = "APTO_PARA_DISENO"
     DEMONSTRATION_ONLY = "APTO_SOLO_DEMOSTRACION"
     NOT_FIT = "NO_APTO_PARA_DISENO"
+
+
+class LoadSource(str, Enum):
+    WIM_MEASURED = "WIM_MEDIDO"
+    MANUAL_VERIFIED = "MANUAL_VERIFICADO"
+    ESTIMATED_BY_CATEGORY = "ESTIMADO_POR_CATEGORIA"
+    SYNTHETIC_DEMONSTRATION = "DEMOSTRATIVO_SINTETICO"
+
+
+@dataclass(frozen=True)
+class ESALAxleGroupInput:
+    position: int
+    axle_type: str
+    physical_axle_count: int
+    total_group_load_kn: float
+    individual_axle_load_kn: float
+    canonical_unit: str
+    load_source: str
+    observations: str
+
+
+@dataclass(frozen=True)
+class ESALVehicleInput:
+    vehicle_id: str
+    approved_category: str
+    origin: str
+    axle_groups: tuple[ESALAxleGroupInput, ...]
+    gross_weight_kn: float
+    canonical_unit: str
+    load_source: str
+    weighing_condition: str
+    quality_warnings: tuple[str, ...]
+    generated_at: str
+    contract_version: str
 
 
 @dataclass(frozen=True)
@@ -80,6 +117,7 @@ class ESALInputFromWeighing:
     categories: tuple[str, ...]
     axle_configurations: dict[str, tuple[str, ...]]
     observations: tuple[WeighingObservation, ...]
+    vehicles: tuple[ESALVehicleInput, ...]
     observation_count: int
     weighing_source_type: str
     source_reference: str
@@ -110,6 +148,8 @@ class AxleEquivalentFactor:
     source: str
     included: bool
     exclusion_reason: str
+    load_source: str
+    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -122,6 +162,8 @@ class VehicleEquivalentFactor:
     validation_state: str
     included: bool
     exclusion_reason: str
+    load_source: str
+    weighing_condition: str
 
 
 @dataclass(frozen=True)
@@ -175,6 +217,7 @@ class ESALWorkflowInput:
     outlier_treatment: str = "INCLUIR_Y_MARCAR"
     reviewer: str = ""
     synthetic_acknowledged: bool = False
+    estimated_data_acknowledged: bool = False
     assumptions: tuple[str, ...] = ()
 
 
@@ -202,6 +245,16 @@ class ESALWorkflowResult:
     initial_annual_esal: float
     accumulated_esal: float
     total_design_esal_w18: float
+    analyzed_batch_vehicle_count: int
+    analyzed_batch_esal: float
+    batch_esal_by_category: dict[str, float]
+    batch_esal_by_load_source: dict[str, float]
+    measured_vehicle_percent: float
+    manual_vehicle_percent: float
+    estimated_vehicle_percent: float
+    synthetic_vehicle_percent: float
+    rejected_vehicle_ids: tuple[str, ...]
+    pending_vehicle_ids: tuple[str, ...]
     outlier_treatment: str
     excluded_observation_ids: tuple[str, ...]
     assumptions: tuple[str, ...]
@@ -214,6 +267,50 @@ class ESALWorkflowResult:
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _load_source_for_observation(observation: WeighingObservation) -> LoadSource:
+    if observation.condition == "SINTETICO_DEMOSTRATIVO":
+        return LoadSource.SYNTHETIC_DEMONSTRATION
+    if observation.condition == "ASUMIDO_POR_USUARIO":
+        return LoadSource.ESTIMATED_BY_CATEGORY
+    if observation.source_type == "WIM":
+        return LoadSource.WIM_MEASURED
+    return LoadSource.MANUAL_VERIFIED
+
+
+def _vehicle_contract(observation: WeighingObservation) -> ESALVehicleInput:
+    load_source = _load_source_for_observation(observation)
+    warnings: list[str] = []
+    if load_source == LoadSource.ESTIMATED_BY_CATEGORY:
+        warnings.append("Carga estimada por categoría; no corresponde a una medición.")
+    elif load_source == LoadSource.SYNTHETIC_DEMONSTRATION:
+        warnings.append("Carga sintética; uso exclusivo de demostración.")
+    return ESALVehicleInput(
+        vehicle_id=observation.record_id,
+        approved_category=observation.category,
+        origin=observation.source_reference,
+        axle_groups=tuple(
+            ESALAxleGroupInput(
+                position=group.position,
+                axle_type=group.axle_type,
+                physical_axle_count=group.physical_axle_count,
+                total_group_load_kn=group.load_kn,
+                individual_axle_load_kn=group.load_kn / group.physical_axle_count,
+                canonical_unit=CANONICAL_WEIGHT_UNIT,
+                load_source=load_source.value,
+                observations=observation.notes,
+            )
+            for group in observation.axle_groups
+        ),
+        gross_weight_kn=observation.gross_weight_kn,
+        canonical_unit=CANONICAL_WEIGHT_UNIT,
+        load_source=load_source.value,
+        weighing_condition=observation.condition,
+        quality_warnings=tuple(warnings),
+        generated_at=observation.timestamp,
+        contract_version="1.0",
+    )
 
 
 def build_esal_input_from_weighing(
@@ -248,6 +345,13 @@ def build_esal_input_from_weighing(
 
     timestamp = transferred_at or datetime.now(timezone.utc).isoformat()
     seed = f"{result.result_id}:{result.input_fingerprint}:{timestamp}:{allow_demonstration}"
+    vehicles = tuple(_vehicle_contract(item) for item in result.observations)
+    if any(
+        item.load_source == LoadSource.MANUAL_VERIFIED.value
+        and not observation.reviewer.strip()
+        for item, observation in zip(vehicles, result.observations)
+    ):
+        raise ValueError("Una carga manual verificada requiere responsable.")
     return ESALInputFromWeighing(
         transfer_id="weighing-esal-" + hashlib.sha256(seed.encode()).hexdigest()[:16],
         version="1.0",
@@ -270,6 +374,7 @@ def build_esal_input_from_weighing(
         categories=result.categories,
         axle_configurations=dict(result.axle_configurations),
         observations=result.observations,
+        vehicles=vehicles,
         observation_count=result.observation_count,
         weighing_source_type=result.weighing_source_type,
         source_reference=result.source_reference,
@@ -390,18 +495,40 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
     vehicle_details: list[VehicleEquivalentFactor] = []
     by_category_factors: dict[str, list[float]] = {}
     warnings = list(transfer.warnings)
+    rejected_ids: set[str] = set()
+    pending_ids: set[str] = set()
     for observation in transfer.observations:
+        load_source = _load_source_for_observation(observation)
         is_included = observation.record_id not in excluded
         reason = "" if is_included else workflow_input.exclusion_reason.strip()
         factors: list[float] = []
+        if observation.category == "CAMION" or observation.category not in HEAVY_CATEGORIES:
+            status = status or ESALWorkflowStatus.BLOCKED_BY_CLASSIFICATION
+            pending_ids.add(observation.record_id)
         if not observation.axle_groups:
             status = status or ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
+            rejected_ids.add(observation.record_id)
+        positions = [group.position for group in observation.axle_groups]
+        if len(positions) != len(set(positions)) or any(position <= 0 for position in positions):
+            status = status or ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
+            rejected_ids.add(observation.record_id)
         for group in observation.axle_groups:
-            if group.load_kn <= 0 or not math.isfinite(group.load_kn):
-                status = status or ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
+            group_warnings: list[str] = []
+            if group.axle_type not in GROUP_REFERENCE_LOAD_KN or group.physical_axle_count <= 0:
+                status = status or ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
+                rejected_ids.add(observation.record_id)
                 factor = 0.0
+                reference_load = 0.0
+                group_warnings.append("Configuración de grupo inválida.")
+            elif group.load_kn <= 0 or not math.isfinite(group.load_kn):
+                status = status or ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
+                rejected_ids.add(observation.record_id)
+                factor = 0.0
+                reference_load = GROUP_REFERENCE_LOAD_KN[group.axle_type]
+                group_warnings.append("Carga faltante, no positiva o no finita.")
             else:
                 factor = _factor_for_group(group.axle_type, group.load_kn)
+                reference_load = GROUP_REFERENCE_LOAD_KN[group.axle_type]
             factors.append(factor)
             axle_details.append(
                 AxleEquivalentFactor(
@@ -410,7 +537,7 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
                     group_position=group.position,
                     axle_type=group.axle_type,
                     load_kn=group.load_kn,
-                    reference_load_kn=GROUP_REFERENCE_LOAD_KN[group.axle_type],
+                    reference_load_kn=reference_load,
                     equivalent_factor=factor,
                     method="Ley de cuarta potencia, función existente por grupo",
                     method_version="1.0",
@@ -418,6 +545,8 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
                     source=EQUIVALENCE_METHOD_SOURCE,
                     included=is_included,
                     exclusion_reason=reason,
+                    load_source=load_source.value,
+                    warnings=tuple(group_warnings),
                 )
             )
         vehicle_factor = sum(factors)
@@ -431,10 +560,40 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
                 validation_state=transfer.methodological_status,
                 included=is_included,
                 exclusion_reason=reason,
+                load_source=load_source.value,
+                weighing_condition=observation.condition,
             )
         )
         if is_included:
             by_category_factors.setdefault(observation.category, []).append(vehicle_factor)
+
+        if observation.gross_weight_kn <= 0 or not math.isfinite(observation.gross_weight_kn):
+            status = status or ESALWorkflowStatus.BLOCKED_BY_LOADS
+            rejected_ids.add(observation.record_id)
+        elif observation.axle_groups:
+            discrepancy = abs(sum(group.load_kn for group in observation.axle_groups) - observation.gross_weight_kn)
+            if discrepancy / observation.gross_weight_kn * 100 > transfer.gross_axle_tolerance_percent:
+                status = status or ESALWorkflowStatus.BLOCKED_BY_LOADS
+                rejected_ids.add(observation.record_id)
+
+    invalid_ids = rejected_ids | pending_ids
+    vehicle_details = [
+        replace(
+            item,
+            included=False,
+            exclusion_reason=(
+                "RECHAZADO_POR_VALIDACION_TECNICA"
+                if item.observation_id in invalid_ids
+                else item.exclusion_reason
+            ),
+        )
+        if item.observation_id in invalid_ids else item
+        for item in vehicle_details
+    ]
+    by_category_factors = {}
+    for item in vehicle_details:
+        if item.included:
+            by_category_factors.setdefault(item.category, []).append(item.vehicle_factor)
 
     truck_factors: list[TruckFactorByCategory] = []
     mean_by_category: dict[str, float] = {}
@@ -537,9 +696,15 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
         )
 
     synthetic = transfer.is_synthetic
+    has_estimated = any(
+        _load_source_for_observation(item) == LoadSource.ESTIMATED_BY_CATEGORY
+        for item in transfer.observations
+    )
     if status is None:
         if synthetic and not workflow_input.synthetic_acknowledged:
             status = ESALWorkflowStatus.BLOCKED_BY_SYNTHETIC_DATA
+        elif has_estimated and not workflow_input.estimated_data_acknowledged:
+            status = ESALWorkflowStatus.BLOCKED_BY_ESTIMATED_DATA
         elif synthetic:
             status = ESALWorkflowStatus.VALID_FOR_DEMONSTRATION
         else:
@@ -556,6 +721,16 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
     result_id = "esal-" + hashlib.sha256(
         f"{transfer.source_weighing_result_id}:{fingerprint}:{created_at}".encode()
     ).hexdigest()[:16]
+    included_vehicles = [item for item in vehicle_details if item.included]
+    batch_by_category: dict[str, float] = {}
+    batch_by_source: dict[str, float] = {}
+    source_counts = {source.value: 0 for source in LoadSource}
+    for item in included_vehicles:
+        batch_by_category[item.category] = batch_by_category.get(item.category, 0.0) + item.vehicle_factor
+        batch_by_source[item.load_source] = batch_by_source.get(item.load_source, 0.0) + item.vehicle_factor
+        source_counts[item.load_source] += 1
+    batch_count = len(included_vehicles)
+    percent = lambda source: source_counts[source.value] / batch_count * 100 if batch_count else 0.0
     return ESALWorkflowResult(
         result_id=result_id,
         version="1.0",
@@ -581,6 +756,16 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
         initial_annual_esal=annual_rows[0].annual_esal if annual_rows else 0.0,
         accumulated_esal=accumulated_total,
         total_design_esal_w18=accumulated_total,
+        analyzed_batch_vehicle_count=batch_count,
+        analyzed_batch_esal=sum(item.vehicle_factor for item in included_vehicles),
+        batch_esal_by_category=batch_by_category,
+        batch_esal_by_load_source=batch_by_source,
+        measured_vehicle_percent=percent(LoadSource.WIM_MEASURED),
+        manual_vehicle_percent=percent(LoadSource.MANUAL_VERIFIED),
+        estimated_vehicle_percent=percent(LoadSource.ESTIMATED_BY_CATEGORY),
+        synthetic_vehicle_percent=percent(LoadSource.SYNTHETIC_DEMONSTRATION),
+        rejected_vehicle_ids=tuple(sorted(rejected_ids)),
+        pending_vehicle_ids=tuple(sorted(pending_ids)),
         outlier_treatment=workflow_input.outlier_treatment,
         excluded_observation_ids=tuple(sorted(excluded)),
         assumptions=tuple(dict.fromkeys(transfer.assumptions + workflow_input.assumptions)),
