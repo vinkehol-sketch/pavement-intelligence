@@ -1,0 +1,9 @@
+{
+  "data_origin": "SYNTHETIC_UI_DEMO",
+  "detected": 142,
+  "valid": 120,
+  "doubtful": 8,
+  "pending": 14,
+  "average_confidence_percent": 94,
+  "experimental": true
+}

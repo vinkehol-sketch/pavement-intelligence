@@ -1,0 +1,8 @@
+{
+  "data_origin": "SYNTHETIC_UI_DEMO",
+  "alerts": [
+    {"time": "14:18", "alert_type": "Congestión", "description": "Ocupación visual sobre el umbral demostrativo", "level": "Advertencia", "status": "Activa"},
+    {"time": "14:08", "alert_type": "Flujo", "description": "Variación anormal del flujo en sentido norte-sur", "level": "Información", "status": "Observada"},
+    {"time": "13:56", "alert_type": "Fuente", "description": "Latencia temporalmente elevada", "level": "Información", "status": "Resuelta"}
+  ]
+}
