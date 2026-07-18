@@ -220,7 +220,7 @@ def _finite_positive(value: Any, field_name: str) -> float:
 
 
 def convert_to_kn(value: Any, unit: str) -> float:
-    """Convierte explícitamente una carga a la unidad canónica kN."""
+    """Convierte fuerza a kN; ``lb`` se interpreta como ``lbf``, no libra-masa."""
     number = _finite_positive(value, "carga")
     normalized = unit.strip().lower()
     factors = {
@@ -232,6 +232,7 @@ def convert_to_kn(value: Any, unit: str) -> float:
         "tonelada": 9.80665,
         "toneladas": 9.80665,
         "lb": 0.0044482216152605,
+        "lbs": 0.0044482216152605,
         "lbf": 0.0044482216152605,
         "kip": 4.4482216152605,
     }

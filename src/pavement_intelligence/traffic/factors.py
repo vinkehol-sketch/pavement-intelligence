@@ -82,8 +82,9 @@ def get_vehicle_fec(vehicle_category_id: str) -> float:
 
 def lef_simple_axle(load_kn: float) -> float:
     """
-    LEF para eje simple. LEF = (P / 80 kN)^4.
-    Referencia: AASHTO Guide (1993), Apéndice D.
+    Aproximación demostrativa para eje simple: ``(P / 80 kN)^4``.
+
+    No es un LEF formal AASHTO 93 dependiente de parámetros estructurales.
     """
     std_load_kn = 80.0  # 18,000 lb
     if load_kn <= 0:
@@ -93,8 +94,9 @@ def lef_simple_axle(load_kn: float) -> float:
 
 def lef_tandem_axle(load_kn: float) -> float:
     """
-    LEF para eje tándem. Carga estándar: 142 kN (32,000 lb).
-    Referencia: AASHTO Guide (1993), Apéndice D.
+    Aproximación demostrativa para tándem: ``(P / 142 kN)^4``.
+
+    No es un LEF formal AASHTO 93 dependiente de parámetros estructurales.
     """
     if load_kn <= 0:
         return 0.0
@@ -103,8 +105,9 @@ def lef_tandem_axle(load_kn: float) -> float:
 
 def lef_tridem_axle(load_kn: float) -> float:
     """
-    LEF para eje trídem. Carga de referencia: 213 kN (48,000 lb).
-    Referencia: AASHTO Guide (1993).
+    Aproximación demostrativa para trídem: ``(P / 213 kN)^4``.
+
+    No es un LEF formal AASHTO 93 dependiente de parámetros estructurales.
     """
     if load_kn <= 0:
         return 0.0

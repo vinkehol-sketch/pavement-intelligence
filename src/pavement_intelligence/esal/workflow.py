@@ -24,12 +24,23 @@ from pavement_intelligence.weighing.workflow import (
     WeighingStatus,
     WeighingWorkflowResult,
 )
+from pavement_intelligence.esal.axle_configuration_catalog import (
+    AXLE_CONFIGURATION_CATALOG_VERSION,
+    AxleConfigurationValidation,
+    validate_category_axle_configuration,
+)
 
 
 STANDARD_SINGLE_AXLE_KN = 80.0
 STANDARD_SINGLE_AXLE_KIP = 18.0
-EQUIVALENCE_METHOD = "LEY_CUARTA_POTENCIA_EXISTENTE_V1"
-EQUIVALENCE_METHOD_SOURCE = "AASHTO Guide 1993, Apéndice D (referencia interna)"
+EQUIVALENCE_METHOD = "LEY_CUARTA_POTENCIA_SIMPLIFICADA_DEMOSTRATIVA_V1"
+EQUIVALENCE_METHOD_LABEL = "Ley de cuarta potencia simplificada — uso demostrativo/académico"
+EQUIVALENCE_METHOD_SOURCE = "Aproximación académica vigente; no equivale a LEF formal AASHTO 93"
+EQUIVALENCE_METHOD_WARNING = (
+    "Este cálculo utiliza una aproximación simplificada de cuarta potencia. "
+    "No sustituye los factores equivalentes formales dependientes de parámetros "
+    "estructurales de AASHTO 93 y no es un resultado oficial de diseño."
+)
 GROUP_REFERENCE_LOAD_KN = {
     "simple_single": 80.0,
     "simple_dual": 80.0,
@@ -55,9 +66,9 @@ class ESALWorkflowStatus(str, Enum):
 
 
 class DesignReadiness(str, Enum):
-    FIT = "APTO_PARA_DISENO"
+    FIT = "APTO_PARA_DEMOSTRACION_ACADEMICA"
     DEMONSTRATION_ONLY = "APTO_SOLO_DEMOSTRACION"
-    NOT_FIT = "NO_APTO_PARA_DISENO"
+    NOT_FIT = "NO_APTO_PARA_CONSOLIDACION_DEMOSTRATIVA"
 
 
 class LoadSource(str, Enum):
@@ -210,6 +221,8 @@ class AnnualESAL:
 class ESALWorkflowInput:
     weighing_transfer: ESALInputFromWeighing
     equivalence_method: str = EQUIVALENCE_METHOD
+    equivalence_exponent: float = 4.0
+    axle_configuration_catalog_version: str = AXLE_CONFIGURATION_CATALOG_VERSION
     standard_single_axle_kn: float = STANDARD_SINGLE_AXLE_KN
     pavement_type: str = "PAVIMENTO_FLEXIBLE_APROXIMACION"
     excluded_observation_ids: tuple[str, ...] = ()
@@ -232,7 +245,12 @@ class ESALWorkflowResult:
     source_tpda_fingerprint: str
     input_fingerprint: str
     equivalence_method: str
+    equivalence_method_label: str
     equivalence_method_source: str
+    equivalence_method_warning: str
+    equivalence_exponent: float
+    axle_configuration_catalog_version: str
+    structural_validations: tuple[AxleConfigurationValidation, ...]
     standard_single_axle_kn: float
     standard_single_axle_kip: float
     standard_axle_description: str
@@ -470,6 +488,13 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
     if workflow_input.equivalence_method != EQUIVALENCE_METHOD:
         raise ValueError("Método de equivalencia no permitido.")
     if (
+        not math.isfinite(workflow_input.equivalence_exponent)
+        or workflow_input.equivalence_exponent != 4.0
+    ):
+        raise ValueError("La aproximación vigente exige exponente finito igual a 4,0.")
+    if workflow_input.axle_configuration_catalog_version != AXLE_CONFIGURATION_CATALOG_VERSION:
+        raise ValueError("La versión del catálogo de ejes no coincide con la vigente.")
+    if (
         not math.isfinite(workflow_input.standard_single_axle_kn)
         or workflow_input.standard_single_axle_kn != STANDARD_SINGLE_AXLE_KN
     ):
@@ -478,8 +503,19 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
         raise ValueError("Las cargas deben recibirse en kN.")
     if not workflow_input.reviewer.strip():
         raise ValueError("El revisor ESAL es obligatorio.")
-    if transfer.design_period_years <= 0 or transfer.growth_rate_percent < 0:
+    if (
+        transfer.design_period_years <= 0
+        or not math.isfinite(transfer.growth_rate_percent)
+        or transfer.growth_rate_percent < 0
+        or not math.isfinite(transfer.directional_factor)
+        or not math.isfinite(transfer.lane_distribution_factor)
+    ):
         raise ValueError("Periodo o crecimiento inválido.")
+    if (
+        not math.isfinite(transfer.gross_axle_tolerance_percent)
+        or transfer.gross_axle_tolerance_percent < 0
+    ):
+        raise ValueError("La tolerancia debe ser finita y mayor o igual que cero.")
 
     excluded = set(workflow_input.excluded_observation_ids)
     if not excluded <= set(transfer.outlier_record_ids):
@@ -495,18 +531,34 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
     vehicle_details: list[VehicleEquivalentFactor] = []
     by_category_factors: dict[str, list[float]] = {}
     warnings = list(transfer.warnings)
+    warnings.append(EQUIVALENCE_METHOD_WARNING)
     rejected_ids: set[str] = set()
     pending_ids: set[str] = set()
+    structural_validations: list[AxleConfigurationValidation] = []
     for observation in transfer.observations:
         load_source = _load_source_for_observation(observation)
         is_included = observation.record_id not in excluded
         reason = "" if is_included else workflow_input.exclusion_reason.strip()
         factors: list[float] = []
-        if observation.category == "CAMION" or observation.category not in HEAVY_CATEGORIES:
-            status = status or ESALWorkflowStatus.BLOCKED_BY_CLASSIFICATION
+        structural_validation = validate_category_axle_configuration(
+            observation.category, observation.axle_groups
+        )
+        structural_validations.append(structural_validation)
+        if not structural_validation.is_valid:
+            category_errors = {
+                "CAMION_NO_RECLASIFICADO", "CATEGORIA_NO_ESTRUCTURAL",
+                "CATEGORIA_DESCONOCIDA", "CONFIGURACION_NO_CONFIRMADA",
+            }
+            structural_status = (
+                ESALWorkflowStatus.BLOCKED_BY_CLASSIFICATION
+                if category_errors.intersection(structural_validation.error_codes)
+                else ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
+            )
+            status = status or structural_status
             pending_ids.add(observation.record_id)
+            warnings.extend(structural_validation.messages + structural_validation.warnings)
         if not observation.axle_groups:
-            status = status or ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
+            status = ESALWorkflowStatus.BLOCKED_BY_AXLE_CONFIGURATION
             rejected_ids.add(observation.record_id)
         positions = [group.position for group in observation.axle_groups]
         if len(positions) != len(set(positions)) or any(position <= 0 for position in positions):
@@ -521,14 +573,25 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
                 reference_load = 0.0
                 group_warnings.append("Configuración de grupo inválida.")
             elif group.load_kn <= 0 or not math.isfinite(group.load_kn):
-                status = status or ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
+                status = ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
                 rejected_ids.add(observation.record_id)
                 factor = 0.0
                 reference_load = GROUP_REFERENCE_LOAD_KN[group.axle_type]
                 group_warnings.append("Carga faltante, no positiva o no finita.")
             else:
-                factor = _factor_for_group(group.axle_type, group.load_kn)
+                try:
+                    factor = _factor_for_group(group.axle_type, group.load_kn)
+                except (OverflowError, ValueError):
+                    factor = 0.0
+                    status = status or ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
+                    rejected_ids.add(observation.record_id)
+                    group_warnings.append("La carga produce un factor no representable de forma finita.")
                 reference_load = GROUP_REFERENCE_LOAD_KN[group.axle_type]
+                if not math.isfinite(factor):
+                    factor = 0.0
+                    status = status or ESALWorkflowStatus.BLOCKED_BY_EQUIVALENCE_FACTORS
+                    rejected_ids.add(observation.record_id)
+                    group_warnings.append("El factor equivalente no es finito.")
             factors.append(factor)
             axle_details.append(
                 AxleEquivalentFactor(
@@ -539,7 +602,7 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
                     load_kn=group.load_kn,
                     reference_load_kn=reference_load,
                     equivalent_factor=factor,
-                    method="Ley de cuarta potencia, función existente por grupo",
+                    method=EQUIVALENCE_METHOD_LABEL,
                     method_version="1.0",
                     pavement_type=workflow_input.pavement_type,
                     source=EQUIVALENCE_METHOD_SOURCE,
@@ -572,7 +635,17 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
             rejected_ids.add(observation.record_id)
         elif observation.axle_groups:
             discrepancy = abs(sum(group.load_kn for group in observation.axle_groups) - observation.gross_weight_kn)
-            if discrepancy / observation.gross_weight_kn * 100 > transfer.gross_axle_tolerance_percent:
+            discrepancy_percent = discrepancy / observation.gross_weight_kn * 100
+            exceeds_tolerance = (
+                discrepancy_percent > transfer.gross_axle_tolerance_percent
+                and not math.isclose(
+                    discrepancy_percent,
+                    transfer.gross_axle_tolerance_percent,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
+            if exceeds_tolerance:
                 status = status or ESALWorkflowStatus.BLOCKED_BY_LOADS
                 rejected_ids.add(observation.record_id)
 
@@ -741,7 +814,12 @@ def calculate_esal_workflow(workflow_input: ESALWorkflowInput) -> ESALWorkflowRe
         source_tpda_fingerprint=transfer.source_tpda_fingerprint,
         input_fingerprint=fingerprint,
         equivalence_method=workflow_input.equivalence_method,
+        equivalence_method_label=EQUIVALENCE_METHOD_LABEL,
         equivalence_method_source=EQUIVALENCE_METHOD_SOURCE,
+        equivalence_method_warning=EQUIVALENCE_METHOD_WARNING,
+        equivalence_exponent=workflow_input.equivalence_exponent,
+        axle_configuration_catalog_version=workflow_input.axle_configuration_catalog_version,
+        structural_validations=tuple(structural_validations),
         standard_single_axle_kn=STANDARD_SINGLE_AXLE_KN,
         standard_single_axle_kip=STANDARD_SINGLE_AXLE_KIP,
         standard_axle_description=(

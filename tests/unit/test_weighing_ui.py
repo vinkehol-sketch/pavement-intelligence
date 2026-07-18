@@ -154,7 +154,7 @@ def test_esal_page_navigation_and_formal_storage_only():
     widget(app.button, "Calcular y validar ESAL").click()
     app.run()
     assert not app.exception
-    assert app.session_state["esal_phase3_result"].design_readiness == "APTO_PARA_DISENO"
+    assert app.session_state["esal_phase3_result"].design_readiness == "APTO_PARA_DEMOSTRACION_ACADEMICA"
     assert "esal_result" not in app.session_state
 
 

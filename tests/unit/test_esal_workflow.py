@@ -6,6 +6,7 @@ import pytest
 from pavement_intelligence.esal.workflow import (
     DesignReadiness,
     EQUIVALENCE_METHOD,
+    EQUIVALENCE_METHOD_WARNING,
     ESALWorkflowInput,
     ESALWorkflowStatus,
     LoadSource,
@@ -33,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def weighing_result(
-    *, synthetic=False, axles=(("simple_dual", 80.0),), observations=1,
+    *, synthetic=False,
+    axles=(("simple_single", 40.0), ("simple_dual", 80.0)), observations=1,
     source_type=WeighingSourceType.STATIC_SCALE,
     condition=None,
 ):
@@ -83,7 +85,7 @@ def test_accepts_fit_weighing_and_contract_is_complete():
     assert vehicle.approved_category == "C2"
     assert vehicle.canonical_unit == "kN"
     assert vehicle.axle_groups[0].physical_axle_count == 1
-    assert vehicle.axle_groups[0].individual_axle_load_kn == 80.0
+    assert vehicle.axle_groups[0].individual_axle_load_kn == 40.0
 
 
 @pytest.mark.parametrize("change,match", [
@@ -116,9 +118,11 @@ def test_transfer_is_manual_and_protected_with_history():
 
 @pytest.mark.parametrize("axle,load", [("simple_dual", 80.0), ("tandem", 142.0), ("tridem", 213.0)])
 def test_existing_equivalence_functions_give_one_at_reference_load(axle, load):
-    result = calculate_esal_workflow(esal_input(result=weighing_result(axles=((axle, load),))))
-    assert result.axle_factors[0].equivalent_factor == pytest.approx(1.0)
-    assert result.axle_factors[0].reference_load_kn == load
+    weighing = weighing_result(axles=((axle, load),))
+    result = calculate_esal_workflow(esal_input(result=weighing))
+    factor = next(item for item in result.axle_factors if item.axle_type == axle)
+    assert factor.equivalent_factor == pytest.approx(1.0)
+    assert factor.reference_load_kn == load
 
 
 def test_load_sources_are_explicit_and_never_promote_estimated_to_measured():
@@ -154,9 +158,9 @@ def test_vehicle_and_category_truck_factor_are_reproducible():
 
 def test_small_independent_numerical_case_fdd_fdc_period_and_light_traffic():
     result = calculate_esal_workflow(esal_input())
-    # C2: 10 veh/día × 365 × FDD 0.5 × FDC 1 × factor 1.
-    assert result.initial_annual_esal == pytest.approx(1825.0)
-    assert result.accumulated_esal == pytest.approx(9125.0)
+    # C2 válido: simple 40 kN + simple dual 80 kN = factor 1,0625.
+    assert result.initial_annual_esal == pytest.approx(1825.0 * 1.0625)
+    assert result.accumulated_esal == pytest.approx(9125.0 * 1.0625)
     assert len(result.annual_esal) == 5
     auto = next(row for row in result.traffic_by_category if row.category == "AUTO")
     assert auto.truck_factor == 0
@@ -167,7 +171,7 @@ def test_growth_is_accumulated_annually():
     data = esal_input()
     transfer = replace(data.weighing_transfer, growth_rate_percent=10.0)
     result = calculate_esal_workflow(replace(data, weighing_transfer=transfer))
-    assert result.annual_esal[1].annual_esal == pytest.approx(1825 * 1.1)
+    assert result.annual_esal[1].annual_esal == pytest.approx(1825 * 1.0625 * 1.1)
 
 
 def test_outliers_are_included_by_default_and_excluded_only_with_traceability():
@@ -210,6 +214,9 @@ def test_real_result_is_fit_for_future_audit_and_uses_declared_standard():
     assert result.equivalence_method == EQUIVALENCE_METHOD
     assert result.standard_single_axle_kn == STANDARD_SINGLE_AXLE_KN
     assert result.standard_single_axle_kip == STANDARD_SINGLE_AXLE_KIP
+    assert result.equivalence_method_warning == EQUIVALENCE_METHOD_WARNING
+    assert "no es un resultado oficial" in result.equivalence_method_warning
+    assert "DISENO" not in result.design_readiness
 
 
 def test_invalid_load_and_incomplete_configuration_are_blocked():

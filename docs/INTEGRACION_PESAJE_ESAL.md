@@ -162,3 +162,64 @@ documental: las planillas académicas auditadas no justifican reemplazarla. No s
 SN, serviciabilidad, confiabilidad, desviación estándar, módulo resiliente ni espesores. El
 resultado no se escribe en `esal_result` ni es consumido por Diseño; una integración futura
 de AASHTO 93 requerirá fuente primaria, parámetros formales y una tarea separada.
+
+## 12. Correcciones posteriores a la auditoría de Fase 3A
+
+### Catálogo categoría y configuración
+
+El catálogo de dominio `BO-ABC-DS24327-DEMO-1.0` se basa en
+`clasificacion_abc_ejes.md`, `configuraciones_ejes.md` y el catálogo vehicular configurable
+1.0.0. Es un control demostrativo trazable, no una certificación normativa definitiva.
+
+| Categoría | Patrones ordenados admitidos | Estado de fuente |
+|---|---|---|
+| C2 | `simple_single-simple_dual`; `simple_single-simple_single` | Confirmado por correspondencia documental local de camión rígido de 2 ejes |
+| C3 | `simple_single-tandem`; `simple_single-simple_dual-simple_dual` | Confirmado por correspondencia local de rígido de 3 ejes |
+| TRACTOCAMION | `simple_single-tandem` | Cabeza tractora de 3 ejes; verificación física obligatoria |
+| ARTICULADO | T2-S2: `simple_single-simple_dual-tandem`; T3-S2: `simple_single-tandem-tandem`; T3-S3: `simple_single-tandem-tridem` | Patrones presentes en la documentación local; no se infieren automáticamente |
+| BUS, OTRO_PESADO | Ninguno impuesto | `CONFIGURACION_NO_CONFIRMADA`; requieren evidencia física y fuente primaria |
+| MOTO, AUTO, CAMIONETA, MINIBUS | No estructurales en este flujo | Bloqueados para consolidación ESAL estructural |
+| CAMION o categoría desconocida | Ninguno | Bloqueados; no se reclasifican automáticamente |
+
+Los códigos T2-S1, T2-S2, T3-S2 y T3-S3 describen combinaciones tractor–semirremolque,
+no categorías independientes del catálogo operativo actual. T2-S2, T3-S2 y T3-S3 pueden
+representarse con los patrones de `ARTICULADO` indicados. T2-S1 queda
+`CONFIGURACION_NO_CONFIRMADA` porque la documentación local no aporta una regla inequívoca
+suficiente para convertirlo en patrón productivo; no se inventa ni se infiere.
+
+Un grupo tándem contiene dos ejes físicos y un grupo trídem contiene tres. Por ello, el
+número de grupos no es el número total de ejes. Las posiciones deben comenzar en 1 y ser
+consecutivas. La validación produce `is_valid`, configuración recibida/esperada, códigos,
+mensajes, advertencias, fuente y versión. La versión participa en la huella ESAL; un cambio
+exige nueva transferencia/revisión y recálculo.
+
+### No finitos y tolerancia
+
+`NaN`, `+Inf` y `-Inf` se rechazan en cargas, peso bruto, tolerancia, exponente y factores de
+proyección. Un registro rechazado no participa en factores por categoría ni agregados. Las
+cargas que desbordan la representación del factor quedan bloqueadas con factor seguro cero.
+
+La diferencia peso bruto/suma de grupos se calcula respecto del peso bruto. El límite es
+**inclusivo**: exactamente el porcentaje configurado se acepta; apenas por encima se rechaza.
+Se admite tolerancia cero para exigir igualdad. Tolerancias negativas o no finitas se rechazan.
+La comparación usa una tolerancia numérica de `1e-12` para evitar falsos rechazos por la
+representación binaria de punto flotante.
+
+### Libras como fuerza
+
+`lb`, `lbs` y `lbf` se interpretan exclusivamente como **libra-fuerza** y usan
+`1 lbf = 0,0044482216152605 kN`. No se admite libra-masa sin información adicional de
+aceleración. `kip` representa kilolibra-fuerza y usa `1 kip = 4,4482216152605 kN`.
+
+### Metodología demostrativa
+
+Nombre obligatorio: **Ley de cuarta potencia simplificada — uso demostrativo/académico**.
+La fórmula vigente no cambió. Las referencias 80/142/213 kN se conservan como convenciones
+del modelo simplificado y no constituyen por sí solas LEF oficiales completos de AASHTO 93.
+
+> Este cálculo utiliza una aproximación simplificada de cuarta potencia. No sustituye los
+> factores equivalentes formales dependientes de parámetros estructurales de AASHTO 93 y no
+> es un resultado oficial de diseño.
+
+Quedan fuera de esta fase los LEF formales dependientes de estructura, SN, serviciabilidad,
+confiabilidad, espesores y cualquier conexión automática hacia Diseño.

@@ -8,7 +8,9 @@ import streamlit as st
 
 from pavement_intelligence.esal.workflow import (
     EQUIVALENCE_METHOD,
+    EQUIVALENCE_METHOD_LABEL,
     EQUIVALENCE_METHOD_SOURCE,
+    EQUIVALENCE_METHOD_WARNING,
     STANDARD_SINGLE_AXLE_KIP,
     STANDARD_SINGLE_AXLE_KN,
     ESALInputFromWeighing,
@@ -24,8 +26,8 @@ from pavement_intelligence.weighing.workflow import WeighingWorkflowResult
 def render() -> None:
     st.title("🔢 ESAL (W18) — Fase 3")
     st.warning(
-        "Este módulo calcula un resultado formal de ESAL. No transfiere W18 a "
-        "Diseño de Pavimento, Suelos ni Reportes."
+        f"{EQUIVALENCE_METHOD_WARNING} No transfiere resultados a Diseño de "
+        "Pavimento, Suelos ni Reportes."
     )
 
     transfer = st.session_state.get("esal_input_from_weighing")
@@ -67,7 +69,7 @@ def render() -> None:
     st.subheader("2. Método de equivalencia")
     st.markdown(
         f"""
-        - **Método:** {EQUIVALENCE_METHOD}
+        - **Método:** {EQUIVALENCE_METHOD_LABEL} (`{EQUIVALENCE_METHOD}`)
         - **Eje estándar:** eje simple de ruedas duales, **{STANDARD_SINGLE_AXLE_KN:.0f} kN**
         - **Presentación equivalente:** aproximadamente **{STANDARD_SINGLE_AXLE_KIP:.0f} kip**
         - **Fuente interna:** {EQUIVALENCE_METHOD_SOURCE}
@@ -176,12 +178,12 @@ def render() -> None:
     st.subheader("4. Factores equivalentes")
     if stale:
         st.error("Resultado conservado, pero no vigente.")
-    elif result.design_readiness == "APTO_PARA_DISENO":
-        st.success("Indicador: APTO_PARA_DISENO. Pendiente de auditoría independiente.")
+    elif result.design_readiness == "APTO_PARA_DEMOSTRACION_ACADEMICA":
+        st.info("Indicador: APTO_PARA_DEMOSTRACION_ACADEMICA; no es aptitud de diseño oficial.")
     elif result.design_readiness == "APTO_SOLO_DEMOSTRACION":
         st.info("Indicador: APTO_SOLO_DEMOSTRACION.")
     else:
-        st.warning("Indicador: NO_APTO_PARA_DISENO.")
+        st.warning("Indicador: NO_APTO_PARA_CONSOLIDACION_DEMOSTRATIVA.")
 
     axle_frame = pd.DataFrame(
         [
@@ -216,6 +218,25 @@ def render() -> None:
         ]
     )
     st.dataframe(vehicle_frame, hide_index=True, use_container_width=True)
+
+    structural_frame = pd.DataFrame(
+        [
+            {
+                "Categoría": item.category,
+                "Compatible": item.is_valid,
+                "Configuración recibida": " - ".join(item.received_configuration) or "VACÍA",
+                "Configuraciones esperadas": " | ".join(
+                    " - ".join(pattern) for pattern in item.expected_configurations
+                ) or "CONFIGURACION_NO_CONFIRMADA",
+                "Códigos": ", ".join(item.error_codes) or "NINGUNO",
+                "Mensajes": " ".join(item.messages + item.warnings) or "Compatible",
+                "Versión catálogo": item.catalog_version,
+            }
+            for item in result.structural_validations
+        ]
+    )
+    st.markdown("**Compatibilidad categoría ↔ configuración física**")
+    st.dataframe(structural_frame, hide_index=True, use_container_width=True)
 
     truck_frame = pd.DataFrame(
         [
@@ -255,7 +276,7 @@ def render() -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("ESAL anual inicial", f"{result.initial_annual_esal:,.0f}")
     c2.metric("ESAL acumulado", f"{result.accumulated_esal:,.0f}")
-    c3.metric("W18 de diseño", f"{result.total_design_esal_w18:,.0f}")
+    c3.metric("W18 aproximado demostrativo", f"{result.total_design_esal_w18:,.0f}")
 
     st.subheader("6. Resumen del lote de cargas analizado")
     s1, s2 = st.columns(2)
