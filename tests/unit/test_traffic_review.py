@@ -5,9 +5,16 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from streamlit.testing.v1 import AppTest
 
 import pavement_intelligence.ui.pages.traffic_review as review
 from pavement_intelligence.integration import TrafficEventContractError
+
+
+PAGE = (
+    Path(__file__).resolve().parents[2]
+    / "src/pavement_intelligence/ui/pages/traffic_review.py"
+)
 
 
 def valid_event(event_id="evt_1", track_id=1, category="AUTO", original_class="car"):
@@ -39,6 +46,40 @@ def session_with_event(event=None):
         "traffic_review_source_fingerprint": "old",
         "tpda_result": {"status": "untouched"},
     }
+
+
+def review_app(*, approved: bool, synthetic: bool = False) -> AppTest:
+    event = reviewed_event(reviewed_by="Auditor UI")
+    app = AppTest.from_file(str(PAGE), default_timeout=20)
+    app.session_state["vision_events_raw"] = [valid_event()]
+    app.session_state["vision_events_reviewed"] = [event]
+    app.session_state["vision_batch_metadata"] = {"model_name": "test.pt", "line_y": 360}
+    app.session_state["traffic_counts_corrected"] = {"AUTO": 1} if approved else {}
+    app.session_state["traffic_review_approved"] = approved
+    app.session_state["is_synthetic_review"] = synthetic
+    app.session_state["traffic_review_source_fingerprint"] = "app-test"
+    return app.run()
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_page_renders_without_name_error_for_both_approval_states(approved):
+    app = review_app(approved=approved)
+    assert not app.exception
+    headings = [item.value for item in app.subheader]
+    has_summary = any("Resumen de Tránsito Consolidado" in heading for heading in headings)
+    assert has_summary is approved
+    assert any("Aprobación y Consolidación del Tránsito" in heading for heading in headings)
+    if approved:
+        assert any("Aforo aprobado listo" in item.value for item in app.success)
+    else:
+        assert any("Para habilitar el traspaso" in item.value for item in app.info)
+
+
+def test_page_keeps_synthetic_warning_and_reviewer_visibility():
+    app = review_app(approved=False, synthetic=True)
+    assert not app.exception
+    assert any("Datos sintéticos de demostración" in item.value for item in app.error)
+    assert any("**Revisor:** `Auditor UI`" in item.value for item in app.markdown)
 
 
 def test_real_line_y360_batch_loads_with_metadata():
@@ -440,4 +481,3 @@ def test_new_batch_does_not_reuse_previous_counts():
     assert len(reviewed_new) == 1
     assert reviewed_new[0]["category"] == "MOTO"
     assert reviewed_new[0]["corrected_category"] == "MOTO"
-

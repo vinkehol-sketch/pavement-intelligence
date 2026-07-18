@@ -327,6 +327,10 @@ def render() -> None:
     st.session_state.setdefault("traffic_review_approved", False)
     st.session_state.setdefault("is_synthetic_review", False)
     st.session_state.setdefault("traffic_review_source_fingerprint", None)
+    review_approved = st.session_state.get(
+        "traffic_review_approved",
+        False,
+    )
 
     counter_events = list(st.session_state.get("events") or [])
     current_source = st.session_state.get("traffic_review_source_fingerprint")
@@ -739,8 +743,6 @@ def render() -> None:
     # ── 3. Acción Manual hacia TPDA y 7. Invalidation ──────────────────────────
     st.markdown("---")
     st.subheader("📤 Traspaso Manual a la Pantalla de Aforo y TPDA")
-    
-    review_approved = st.session_state.get("traffic_review_approved", False)
     
     if not review_approved:
         st.info("ℹ️ Para habilitar el traspaso de datos, complete la revisión y presione 'Aprobar Aforo Revisado' arriba.")
