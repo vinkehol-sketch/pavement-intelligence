@@ -21,6 +21,7 @@ from pavement_intelligence.esal.workflow import (
     weighing_transfer_is_current,
 )
 from pavement_intelligence.weighing.workflow import WeighingWorkflowResult
+from pavement_intelligence.ui.pages.esal_projection_section import render_projection_section
 
 
 def render() -> None:
@@ -317,6 +318,7 @@ def render() -> None:
         "No existe transferencia a Diseño. El indicador debe auditarse antes de "
         "implementar cualquier consumo de esal_phase3_result."
     )
+    render_projection_section(result)
 
 
 if __name__ == "__main__":
