@@ -20,6 +20,7 @@ pages = [
     st.Page("pages/weighing.py", title="Pesaje", icon="⚖️"),
     st.Page("pages/esal_calculator.py", title="ESAL", icon="🔢"),
     st.Page("pages/soil_study.py", title="Estudio de suelo", icon="🌍"),
+    st.Page("pages/aashto_sn.py", title="AASHTO 93 — SN requerido", icon=":material/calculate:"),
     st.Page("pages/pavement_design.py", title="Diseño de pavimento", icon="🛣️"),
     st.Page("pages/reports.py", title="Reportes", icon="📄"),
 ]
