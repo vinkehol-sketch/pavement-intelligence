@@ -248,6 +248,23 @@ class LayerAlternative:
 
 
 @dataclass(frozen=True)
+class MinimumThicknessStatus:
+    layer_id: str
+    layer_type: str
+    material: str
+    adopted_thickness: float
+    declared_minimum: float | None
+    difference: float | None
+    deficit: float | None
+    display_unit: str
+    status: str
+    is_manual_non_normative: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class LayerDesignResult:
     result_id: str
     created_at: str
@@ -331,6 +348,70 @@ def inches_to_thickness(value: float, unit: str) -> float:
     if unit == "mm":
         return value * 25.4
     raise ValueError("Unidad de espesor desconocida; use in, cm o mm.")
+
+
+def minimum_thickness_statuses(
+    data: LayerWorkflowInput,
+    result: LayerDesignResult,
+    *,
+    adopted_by_layer_in: dict[str, float] | None = None,
+) -> tuple[MinimumThicknessStatus, ...]:
+    """Deriva el control visual de mínimos sin modificar cálculo ni huella."""
+    inputs = {item.layer_type: item for item in data.layers}
+    contributions = {item.layer_type: item for item in result.contributions}
+    rows: list[MinimumThicknessStatus] = []
+    for layer_type in (item.value for item in LayerType):
+        source = inputs[layer_type]
+        contribution = contributions[layer_type]
+        adopted_in = (
+            adopted_by_layer_in[layer_type]
+            if adopted_by_layer_in is not None
+            else contribution.adopted_thickness_in
+        )
+        adopted = inches_to_thickness(adopted_in, source.thickness_unit)
+        if source.minimum_thickness is None:
+            rows.append(
+                MinimumThicknessStatus(
+                    source.layer_id,
+                    layer_type,
+                    source.material,
+                    adopted,
+                    None,
+                    None,
+                    None,
+                    source.thickness_unit,
+                    "MÍNIMO NO DECLARADO",
+                    False,
+                )
+            )
+            continue
+        minimum_in = thickness_to_inches(
+            source.minimum_thickness, source.minimum_thickness_unit
+        )
+        minimum = inches_to_thickness(minimum_in, source.thickness_unit)
+        difference = adopted - minimum
+        if math.isclose(adopted_in, minimum_in, rel_tol=1e-12, abs_tol=1e-12):
+            status = "IGUAL AL MÍNIMO MANUAL DECLARADO"
+            difference = 0.0
+        elif difference > 0:
+            status = "CUMPLE MÍNIMO MANUAL DECLARADO"
+        else:
+            status = "NO CUMPLE MÍNIMO MANUAL DECLARADO"
+        rows.append(
+            MinimumThicknessStatus(
+                source.layer_id,
+                layer_type,
+                source.material,
+                adopted,
+                minimum,
+                difference,
+                max(0.0, -difference),
+                source.thickness_unit,
+                status,
+                True,
+            )
+        )
+    return tuple(rows)
 
 
 def layer_contribution(

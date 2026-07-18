@@ -36,3 +36,19 @@ def test_ui_does_not_claim_official_design_or_write_legacy_state():
         "espesor recomendado oficial",
     ):
         assert forbidden not in SOURCE
+
+
+def test_ui_shows_structured_minimum_control_and_manual_warning():
+    for text in (
+        "Control de mínimos manuales declarados",
+        "Espesor adoptado",
+        "Mínimo manual",
+        "Diferencia",
+        "Estado",
+        "NO CUMPLE MÍNIMO MANUAL DECLARADO",
+        "Déficit respecto del mínimo",
+        "no constituye por sí",
+        "mismo un mínimo normativo confirmado",
+        "Incumplimientos de mínimos manuales en alternativas",
+    ):
+        assert text in SOURCE

@@ -21,6 +21,7 @@ from pavement_intelligence.aashto93.layer_design_workflow import (
     discrete_search,
     inches_to_thickness,
     input_fingerprint,
+    minimum_thickness_statuses,
     result_is_stale_5b,
     round_up_thickness,
     store_result,
@@ -347,3 +348,120 @@ def test_contracts_are_serializable_and_frozen():
     assert "provided_sn" in result.as_dict()
     with pytest.raises(Exception):
         result.provided_sn = 0
+
+
+def with_minimums(*values):
+    return tuple(
+        replace(
+            item, minimum_thickness=value, minimum_thickness_unit=item.thickness_unit
+        )
+        for item, value in zip(layers(), values, strict=True)
+    )
+
+
+def test_minimum_status_without_declaration_is_not_false_compliance():
+    current = data()
+    result = calculate_layer_design(current)
+    rows = minimum_thickness_statuses(current, result)
+    assert all(row.status == "MÍNIMO NO DECLARADO" for row in rows)
+    assert all(
+        row.declared_minimum is None and not row.is_manual_non_normative for row in rows
+    )
+
+
+def test_minimum_status_above_and_exact_identifies_layer_and_unit():
+    current = data(layer_values=with_minimums(4, 6, 10))
+    result = calculate_layer_design(current)
+    rows = minimum_thickness_statuses(current, result)
+    assert rows[0].status == "CUMPLE MÍNIMO MANUAL DECLARADO"
+    assert rows[1].status == "IGUAL AL MÍNIMO MANUAL DECLARADO"
+    assert rows[1].material == LayerType.BASE.value and rows[1].display_unit == "in"
+    assert rows[1].difference == 0 and rows[1].is_manual_non_normative
+
+
+def test_minimum_status_below_has_values_difference_and_positive_deficit():
+    current = data(layer_values=with_minimums(6, 7, 13))
+    result = calculate_layer_design(current)
+    rows = minimum_thickness_statuses(current, result)
+    assert all(row.status == "NO CUMPLE MÍNIMO MANUAL DECLARADO" for row in rows)
+    assert [
+        (row.adopted_thickness, row.declared_minimum, row.difference, row.deficit)
+        for row in rows
+    ] == [(5, 6, -1, 1), (6, 7, -1, 1), (12, 13, -1, 1)]
+
+
+def test_minimum_display_uses_user_unit_after_canonical_comparison():
+    layer_values = list(layers(12.7, 15.24, 30.48, "cm"))
+    layer_values[1] = replace(
+        layer_values[1], minimum_thickness=20.32, minimum_thickness_unit="cm"
+    )
+    current = data(layer_values=tuple(layer_values))
+    result = calculate_layer_design(current)
+    base = minimum_thickness_statuses(current, result)[1]
+    assert base.adopted_thickness == pytest.approx(15.24)
+    assert base.declared_minimum == pytest.approx(20.32)
+    assert base.deficit == pytest.approx(5.08)
+
+
+def test_minimum_status_reflects_rounding_and_adjustment_without_recalculation():
+    layer_values = list(layers(4.1, 2, 2))
+    layer_values[0] = replace(layer_values[0], minimum_thickness=4.5)
+    rounding = (
+        round_up_thickness(
+            4.1,
+            0.5,
+            layer_type=LayerType.ASPHALT.value,
+            responsible="Ing.",
+            justification="Manual",
+        ),
+    )
+    rounded_data = data(layer_values=tuple(layer_values), rounding=rounding)
+    rounded_result = calculate_layer_design(rounded_data)
+    assert (
+        minimum_thickness_statuses(rounded_data, rounded_result)[0].status
+        == "IGUAL AL MÍNIMO MANUAL DECLARADO"
+    )
+    adjusted_data = data(
+        required=4,
+        layer_values=with_minimums(9, 2, 2),
+        mode=DesignMode.ADJUST_ONE.value,
+        adjusted_layer=LayerType.ASPHALT.value,
+    )
+    adjusted_result = calculate_layer_design(adjusted_data)
+    assert (
+        minimum_thickness_statuses(adjusted_data, adjusted_result)[0].status
+        == "NO CUMPLE MÍNIMO MANUAL DECLARADO"
+    )
+
+
+def test_alternative_minimum_status_uses_existing_alternative_thicknesses():
+    current = replace(search_data(), layers=with_minimums(7, 7, 7))
+    result = calculate_layer_design(current)
+    alternative = result.alternatives[0]
+    rows = minimum_thickness_statuses(
+        current, result, adopted_by_layer_in=dict(alternative.thicknesses_in)
+    )
+    assert any(row.status == "NO CUMPLE MÍNIMO MANUAL DECLARADO" for row in rows)
+
+
+def test_minimum_visual_derivation_does_not_change_math_or_fingerprint():
+    current = data(layer_values=with_minimums(6, 7, 13))
+    result = calculate_layer_design(current)
+    before = (
+        result.provided_sn,
+        result.deficit,
+        result.excess,
+        result.status,
+        tuple(x.adopted_thickness_in for x in result.contributions),
+        result.input_fingerprint,
+    )
+    minimum_thickness_statuses(current, result)
+    after = (
+        result.provided_sn,
+        result.deficit,
+        result.excess,
+        result.status,
+        tuple(x.adopted_thickness_in for x in result.contributions),
+        result.input_fingerprint,
+    )
+    assert before == after

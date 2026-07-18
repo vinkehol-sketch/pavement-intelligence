@@ -23,6 +23,7 @@ from pavement_intelligence.aashto93.layer_design_workflow import (
     round_up_thickness,
     store_result,
     thickness_to_inches,
+    minimum_thickness_statuses,
 )
 from pavement_intelligence.aashto93.sn_workflow import (
     AASHTO93Input,
@@ -289,6 +290,39 @@ if isinstance(result, LayerDesignResult):
     st.dataframe(
         pd.DataFrame([x.__dict__ for x in result.contributions]), hide_index=True
     )
+    st.subheader("Control de mínimos manuales declarados")
+    minimum_rows = minimum_thickness_statuses(data, result)
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Capa": row.material,
+                    "Espesor adoptado": row.adopted_thickness,
+                    "Mínimo manual": row.declared_minimum,
+                    "Diferencia": row.difference,
+                    "Unidad": row.display_unit,
+                    "Estado": row.status,
+                }
+                for row in minimum_rows
+            ]
+        ),
+        hide_index=True,
+        column_config={
+            "Espesor adoptado": st.column_config.NumberColumn(format="%.2f"),
+            "Mínimo manual": st.column_config.NumberColumn(format="%.2f"),
+            "Diferencia": st.column_config.NumberColumn(format="%.2f"),
+        },
+    )
+    for row in minimum_rows:
+        if row.status == "NO CUMPLE MÍNIMO MANUAL DECLARADO":
+            st.warning(
+                f"Capa: {row.material}\n\n"
+                f"Espesor adoptado: {row.adopted_thickness:.2f} {row.display_unit}\n\n"
+                f"Mínimo manual declarado: {row.declared_minimum:.2f} {row.display_unit}\n\n"
+                f"Déficit respecto del mínimo: {row.deficit:.2f} {row.display_unit}\n\n"
+                "Este mínimo fue declarado manualmente y no constituye por sí "
+                "mismo un mínimo normativo confirmado."
+            )
     if result.alternatives:
         st.caption(
             "Alternativas ordenadas por criterio demostrativo, no económico; no se selecciona una automáticamente."
@@ -296,6 +330,27 @@ if isinstance(result, LayerDesignResult):
         st.dataframe(
             pd.DataFrame([x.__dict__ for x in result.alternatives]), hide_index=True
         )
+        alternative_failures = []
+        for index, alternative in enumerate(result.alternatives, 1):
+            checks = minimum_thickness_statuses(
+                data, result, adopted_by_layer_in=dict(alternative.thicknesses_in)
+            )
+            alternative_failures.extend(
+                {
+                    "Alternativa": index,
+                    "Capa": row.material,
+                    "Espesor adoptado": row.adopted_thickness,
+                    "Mínimo manual": row.declared_minimum,
+                    "Déficit": row.deficit,
+                    "Unidad": row.display_unit,
+                    "Estado": row.status,
+                }
+                for row in checks
+                if row.status == "NO CUMPLE MÍNIMO MANUAL DECLARADO"
+            )
+        if alternative_failures:
+            st.write("Incumplimientos de mínimos manuales en alternativas:")
+            st.dataframe(pd.DataFrame(alternative_failures), hide_index=True)
     for warning in result.warnings:
         st.warning(warning)
     st.download_button(
