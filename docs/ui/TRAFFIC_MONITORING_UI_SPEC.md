@@ -96,3 +96,8 @@ La pantalla consumirá datos generados por un servicio de simulación (`pavement
 ### B. Integración con el Flujo de Tránsito
 * **Estado de la Revisión**: La cabecera consulta el estado de aprobación del aforo en `st.session_state["traffic_review_approval"]`. Si es `True`, muestra una etiqueta verde de "Aforo Aprobado" al lado del botón "Revisar Conteo".
 * **Estado del OCR**: La tarjeta de LPR lee directamente la longitud de los registros de placas y su estado desde `st.session_state["ocr_review_records"]` para mostrar la cantidad de pendientes reales en tiempo de ejecución.
+# Extensión: reproductor de video demostrativo
+
+El Centro de Monitoreo admite dos fuentes de demostración: `Imagen estática` (modo inicial y fallback) y `Video local`. El segundo modo reproduce exclusivamente un MP4 local preprocesado mediante fotogramas servidos por Streamlit; no conecta con detección, tracking, OCR ni aforo oficial.
+
+Los controles Reproducir, Pausar y Reiniciar operan sobre estado de sesión aislado con prefijo `traffic_demo_`. La interfaz muestra fotograma, progreso, tiempo actual/total, FPS y resolución. Toda métrica sincronizada con el progreso debe llevar la leyenda visible “Métricas demostrativas, no calculadas desde el video”. Un fallo de lectura debe pausar el reproductor y restaurar visualmente la imagen estática sin interrumpir la página.
