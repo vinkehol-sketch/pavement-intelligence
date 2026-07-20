@@ -24,6 +24,16 @@ class FakeEngine:
         return self.results
 
 
+class FakeModernEngine:
+    def __init__(self, results):
+        self.results = results
+        self.calls = []
+
+    def predict(self, image, **kwargs):
+        self.calls.append((image.copy(), kwargs))
+        return self.results
+
+
 def candidate(text, confidence):
     return [None, (text, confidence)]
 
@@ -107,6 +117,29 @@ def test_multiple_candidates_select_highest_confidence(frame):
     result = reader_with(results, anonymize=False).detect_and_read(frame, (0, 0, 30, 30))
     assert result.text_raw == "BEST22"
     assert result.confidence == 0.95
+
+
+def test_paddleocr_3_polygon_and_bbox_are_translated_from_roi(frame):
+    payload = {
+        "res": {
+            "rec_texts": ["ABC-123"],
+            "rec_scores": [0.94],
+            "rec_polys": [[[2, 3], [22, 3], [22, 11], [2, 11]]],
+            "rec_boxes": [[2, 3, 22, 11]],
+        }
+    }
+    reader = PaddleOCRPlateReader(anonymize=False)
+    reader._ocr = FakeModernEngine([payload])
+    reader._paddleocr_major = 3
+    result = reader.detect_and_read(frame, (10, 20, 70, 60))
+    assert result.text_raw == "ABC123"
+    assert result.polygon == (
+        (12.0, 23.0),
+        (32.0, 23.0),
+        (32.0, 31.0),
+        (12.0, 31.0),
+    )
+    assert result.bbox == (12.0, 23.0, 32.0, 31.0)
 
 
 @pytest.mark.parametrize("confidence", [0.0, 1.0])

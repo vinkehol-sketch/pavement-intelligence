@@ -24,6 +24,7 @@ from pavement_intelligence.ui.utils.plate_session import (
     reject_plate_reading,
     toggle_plate_reveal,
 )
+from pavement_intelligence.ui.utils.plate_visualization import annotate_plate_frame
 from pavement_intelligence.ui.utils.styles import load_dashboard_css, render_status_chip
 from pavement_intelligence.ui.utils.uploaded_video import (
     ALLOWED_UPLOAD_EXTENSIONS,
@@ -158,26 +159,156 @@ def _start_real_ocr(source_kind: str, selected_relative: str, every_n: int) -> N
             NormalizedRoiExtractor(),
             PlateAnalysisConfig(every_n_frames=every_n, source_id=source_id),
         )
-        controller.start()
+        source_info = controller.start()
         st.session_state["plate_session_controller"] = controller
         st.session_state["plate_session_source_id"] = source_id
         st.session_state["plate_session_batch_id"] = controller.plate_batch_id
         st.session_state["plate_session_batch_readings"] = ()
         st.session_state["plate_session_frame_result"] = None
+        st.session_state["plate_session_annotated_frame"] = None
+        st.session_state["plate_session_last_frame"] = None
+        st.session_state["plate_session_last_detections"] = ()
+        st.session_state["plate_session_source_info"] = source_info
         st.session_state["plate_session_last_processed_frame"] = None
         st.session_state["plate_session_error"] = ""
+        st.session_state["plate_session_skip_auto_once"] = False
     except Exception as exc:
         st.session_state["plate_session_error"] = str(exc)
 
 
-def _sync_plate_controller(controller: PlateAnalysisController) -> None:
-    result = controller.process_next()
+def _sync_plate_controller(
+    controller: PlateAnalysisController, *, single_step: bool = False
+) -> None:
+    result = controller.step() if single_step else controller.process_next()
     st.session_state["plate_session_frame_result"] = result
     st.session_state["plate_session_batch_readings"] = controller.readings
     if result is not None:
         st.session_state["plate_session_last_processed_frame"] = result.frame_index
+        if result.frame is not None:
+            st.session_state["plate_session_last_frame"] = result.frame
+            st.session_state["plate_session_last_detections"] = result.detections
+            st.session_state["plate_session_annotated_frame"] = annotate_plate_frame(
+                result.frame,
+                result.detections,
+                protect_plate=bool(
+                    st.session_state.get("plate_session_protect_viewer", True)
+                ),
+            )
     if controller.state is PlateAnalysisState.ERROR:
         st.session_state["plate_session_error"] = controller.error
+    if controller.state in {
+        PlateAnalysisState.COMPLETED,
+        PlateAnalysisState.ERROR,
+    }:
+        _cleanup_finished_upload()
+
+
+def _cleanup_finished_upload() -> None:
+    handle = st.session_state.get("plate_session_uploaded_video")
+    if isinstance(handle, UploadedVideoHandle):
+        cleanup_uploaded_video(handle)
+        st.session_state["plate_session_uploaded_video"] = None
+        st.session_state["plate_session_upload_status"] = "finalized"
+
+
+def _reset_real_ocr_session() -> None:
+    """Callback ejecutado antes de crear widgets en el rerun de reinicio."""
+    cleanup_plate_session(st.session_state)
+    initialize_plate_session(st.session_state)
+
+
+def _render_progressive_viewer(source_kind: str) -> None:
+    controller = st.session_state.get("plate_session_controller")
+    state = (
+        controller.state
+        if isinstance(controller, PlateAnalysisController)
+        else (
+            PlateAnalysisState.ERROR
+            if st.session_state.get("plate_session_error")
+            else PlateAnalysisState.IDLE
+        )
+    )
+    auto_running = (
+        state is PlateAnalysisState.RUNNING
+        and source_kind in {LOCAL_SOURCE, UPLOAD_SOURCE}
+    )
+
+    @st.fragment(run_every=0.15 if auto_running else None)
+    def progressive_viewer() -> None:
+        active = st.session_state.get("plate_session_controller")
+        if (
+            isinstance(active, PlateAnalysisController)
+            and active.state is PlateAnalysisState.RUNNING
+            and source_kind in {LOCAL_SOURCE, UPLOAD_SOURCE}
+        ):
+            if st.session_state.get("plate_session_skip_auto_once", False):
+                st.session_state["plate_session_skip_auto_once"] = False
+            else:
+                _sync_plate_controller(active)
+
+        active = st.session_state.get("plate_session_controller")
+        active_state = (
+            active.state
+            if isinstance(active, PlateAnalysisController)
+            else (
+                PlateAnalysisState.ERROR
+                if st.session_state.get("plate_session_error")
+                else PlateAnalysisState.IDLE
+            )
+        )
+        frame_result = st.session_state.get("plate_session_frame_result")
+        source_info = st.session_state.get("plate_session_source_info")
+        current = int(getattr(frame_result, "frame_index", 0) or 0)
+        total_value = getattr(source_info, "total_frames", None)
+        total = int(total_value) if total_value else None
+        progress = min(1.0, current / total) if total else 0.0
+        if active_state is PlateAnalysisState.COMPLETED and total:
+            progress = 1.0
+        readings = tuple(st.session_state.get("plate_session_batch_readings", ()))
+        processing_fps = float(getattr(frame_result, "processing_fps", 0.0) or 0.0)
+
+        last_frame = st.session_state.get("plate_session_last_frame")
+        last_detections = tuple(
+            st.session_state.get("plate_session_last_detections", ())
+        )
+        if last_frame is not None:
+            st.session_state["plate_session_annotated_frame"] = annotate_plate_frame(
+                last_frame,
+                last_detections,
+                protect_plate=bool(
+                    st.session_state.get("plate_session_protect_viewer", True)
+                ),
+            )
+
+        with st.container(horizontal=True):
+            st.metric("Estado", active_state.value, border=True)
+            st.metric(
+                "Fotograma",
+                f"{current}/{total}" if total else str(current),
+                border=True,
+            )
+            st.metric("Progreso", f"{progress:.1%}", border=True)
+            st.metric("Lecturas encontradas", len(readings), border=True)
+            st.metric("FPS de procesamiento", f"{processing_fps:.2f}", border=True)
+        progress_text = (
+            f"Fotograma {current} de {total} · {progress:.1%}"
+            if total
+            else f"Fotograma {current} · total no disponible"
+        )
+        st.progress(progress, text=progress_text)
+
+        frame = st.session_state.get("plate_session_annotated_frame")
+        if frame is not None:
+            st.image(
+                frame,
+                channels="BGR",
+                caption="Video OCR procesado progresivamente",
+                width="stretch",
+            )
+        elif active_state is PlateAnalysisState.IDLE:
+            st.info("Inicia el análisis para ver el video procesado.")
+
+    progressive_viewer()
 
 
 def _render_real_ocr() -> None:
@@ -266,27 +397,46 @@ def _render_real_ocr() -> None:
         "Evaluar OCR cada N frames",
         min_value=1,
         max_value=30,
-        value=5,
+        value=15,
         key="plate_session_every_n_frames",
     )
+    st.caption(
+        "En CPU se recomienda iniciar en 10–15. Auméntalo si necesitas una "
+        "visualización más fluida; la calidad OCR no se reduce automáticamente."
+    )
+    protect_viewer = st.toggle(
+        "Enmascarar matrículas en el visor",
+        key="plate_session_protect_viewer",
+        help=(
+            "Desactívalo explícitamente para mostrar texto completo y la región "
+            "sin ocultar. El fotograma permanece solo en esta sesión."
+        ),
+    )
+    if not protect_viewer:
+        st.warning(
+            "Privacidad desactivada: el visor puede mostrar matrículas completas.",
+            icon=":material/visibility:",
+        )
     backend = "disponible" if _paddleocr_available() else "no instalado"
     st.caption(f"Backend PaddleOCR: {backend} · Placas ocultas por defecto")
 
     controller = st.session_state.get("plate_session_controller")
-    state = controller.state if isinstance(controller, PlateAnalysisController) else PlateAnalysisState.IDLE
+    state = (
+        controller.state
+        if isinstance(controller, PlateAnalysisController)
+        else (
+            PlateAnalysisState.ERROR
+            if st.session_state.get("plate_session_error")
+            else PlateAnalysisState.IDLE
+        )
+    )
     with st.container(horizontal=True):
         if st.button(
-            "Iniciar OCR",
+            "Iniciar",
             type="primary",
             disabled=not input_ready or state is not PlateAnalysisState.IDLE,
         ):
             _start_real_ocr(source_kind, selected_relative, every_n)
-            st.rerun()
-        if st.button(
-            "Procesar siguiente frame",
-            disabled=state is not PlateAnalysisState.RUNNING,
-        ) and isinstance(controller, PlateAnalysisController):
-            _sync_plate_controller(controller)
             st.rerun()
         if st.button(
             "Pausar", disabled=state is not PlateAnalysisState.RUNNING
@@ -299,52 +449,33 @@ def _render_real_ocr() -> None:
             controller.resume()
             st.rerun()
         if st.button(
+            "Procesar siguiente fotograma",
+            disabled=state
+            not in {PlateAnalysisState.RUNNING, PlateAnalysisState.PAUSED},
+        ) and isinstance(controller, PlateAnalysisController):
+            _sync_plate_controller(controller, single_step=True)
+            st.session_state["plate_session_skip_auto_once"] = True
+            st.rerun()
+        if st.button(
             "Finalizar",
             disabled=state not in {PlateAnalysisState.RUNNING, PlateAnalysisState.PAUSED},
         ) and isinstance(controller, PlateAnalysisController):
             batch = controller.finish()
             st.session_state["plate_session_batch_readings"] = batch.readings
-            handle = st.session_state.get("plate_session_uploaded_video")
-            if isinstance(handle, UploadedVideoHandle):
-                cleanup_uploaded_video(handle)
-                st.session_state["plate_session_uploaded_video"] = None
-                st.session_state["plate_session_upload_status"] = "finalized"
+            _cleanup_finished_upload()
             st.rerun()
-        if st.button("Reiniciar", disabled=controller is None):
-            if isinstance(controller, PlateAnalysisController):
-                controller.reset()
-            st.session_state["plate_session_controller"] = None
-            st.session_state["plate_session_batch_id"] = None
-            st.session_state["plate_session_frame_result"] = None
-            st.session_state["plate_session_batch_readings"] = ()
-            st.session_state["plate_session_last_processed_frame"] = None
-            st.session_state["plate_session_error"] = ""
-            st.session_state["plate_session_reviews"] = {}
-            st.session_state["plate_session_reveal_audit"] = ()
-            st.rerun()
+        st.button(
+            "Reiniciar",
+            disabled=controller is None
+            and not st.session_state.get("plate_session_error"),
+            on_click=_reset_real_ocr_session,
+        )
 
-    controller = st.session_state.get("plate_session_controller")
-    state = controller.state if isinstance(controller, PlateAnalysisController) else PlateAnalysisState.IDLE
-    st.write(f"Estado OCR: **{state.value}**")
     error = st.session_state.get("plate_session_error", "")
     if error:
         st.error(str(error))
 
-    frame_result = st.session_state.get("plate_session_frame_result")
-    if frame_result is not None and frame_result.frame is not None:
-        frame_col, roi_col = st.columns(2)
-        frame_col.image(
-            frame_result.frame,
-            channels="BGR",
-            caption=f"Frame {frame_result.frame_index} · {frame_result.timestamp_seconds:.2f} s",
-        )
-        if frame_result.roi_bbox is not None:
-            x1, y1, x2, y2 = frame_result.roi_bbox
-            roi_col.image(
-                frame_result.frame[y1:y2, x1:x2],
-                channels="BGR",
-                caption="Región OCR seleccionada (ROI, no detector)",
-            )
+    _render_progressive_viewer(source_kind)
 
     readings = tuple(st.session_state.get("plate_session_batch_readings", ()))
     reviews = dict(st.session_state.get("plate_session_reviews", {}))

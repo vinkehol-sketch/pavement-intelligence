@@ -124,6 +124,10 @@ def test_initial_state_is_idle_and_empty():
     assert subject.last_result is None
 
 
+def test_cpu_friendly_default_keeps_ocr_frequency_configurable():
+    assert PlateAnalysisConfig().every_n_frames == 15
+
+
 def test_start_opens_valid_source_and_creates_independent_batch():
     subject = controller()
     info = subject.start()
@@ -260,6 +264,35 @@ def test_pause_does_not_advance_source_or_metrics():
     assert subject.state is PlateAnalysisState.PAUSED
 
 
+def test_single_step_advances_once_while_remaining_paused():
+    source = FakeSource()
+    subject = controller(source=source)
+    subject.start()
+    subject.pause()
+    result = subject.step()
+    assert result.frame_index == 1
+    assert source.read_calls == 1
+    assert subject.state is PlateAnalysisState.PAUSED
+
+
+def test_frame_result_exposes_real_ocr_geometry_and_processing_fps():
+    detected = PlateResult(
+        "ABC123",
+        None,
+        0.91,
+        (40.0, 50.0, 90.0, 70.0),
+        is_anonymized=False,
+        polygon=((40.0, 50.0), (90.0, 50.0), (90.0, 70.0), (40.0, 70.0)),
+    )
+    subject = controller(reader=FakeReader([detected]))
+    subject.start()
+    result = subject.process_next()
+    assert result.processing_fps > 0
+    assert result.detections[0].bbox == detected.bbox
+    assert result.detections[0].polygon == detected.polygon
+    assert result.detections[0].normalized_text == "ABC123"
+
+
 def test_resume_continues_from_previous_frame():
     source = FakeSource()
     subject = controller(source=source)
@@ -290,6 +323,7 @@ def test_finish_is_idempotent_and_preserves_batch():
     second = subject.finish()
     assert first == second
     assert first.state is PlateAnalysisState.FINISHED
+    assert first.state.value == "COMPLETED"
     assert first.normative is False
 
 

@@ -15,6 +15,7 @@ class PlateResult:
     confidence: float             # confianza de lectura OCR (0.0 a 1.0)
     bbox: Optional[tuple[float, float, float, float]]  # bbox de la placa
     is_anonymized: bool = True    # siempre True por defecto
+    polygon: Optional[tuple[tuple[float, float], ...]] = None
 
 
 class AbstractPlateReader(ABC):

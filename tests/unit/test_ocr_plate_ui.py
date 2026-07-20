@@ -26,7 +26,14 @@ class FakeReader:
 
 
 def plate(text="ABC-123", confidence=0.93):
-    return PlateResult(text, None, confidence, None, is_anonymized=False)
+    return PlateResult(
+        text,
+        None,
+        confidence,
+        (20.0, 30.0, 80.0, 55.0),
+        is_anonymized=False,
+        polygon=((20.0, 30.0), (80.0, 30.0), (80.0, 55.0), (20.0, 55.0)),
+    )
 
 
 def real_app(*, reader: FakeReader | None = None):
@@ -45,10 +52,14 @@ def button(app, label: str):
     return next(item for item in app.button if item.label == label)
 
 
+def state_metric(app) -> str:
+    return next(item for item in app.metric if item.label == "Estado").value
+
+
 def start_and_process(app):
-    button(app, "Iniciar OCR").click().run()
+    button(app, "Iniciar").click().run()
     assert not app.exception
-    button(app, "Procesar siguiente frame").click().run()
+    button(app, "Procesar siguiente fotograma").click().run()
     assert not app.exception
     return app
 
@@ -63,7 +74,7 @@ def test_synthetic_mode_remains_default_and_separate():
     )
     assert mode.value == "Demostración sintética"
     assert "Mostrar placa" in {item.label for item in app.button}
-    assert "Iniciar OCR" not in {item.label for item in app.button}
+    assert "Iniciar" not in {item.label for item in app.button}
     assert all(item.data_origin == "SYNTHETIC_UI_DEMO" for item in app.session_state["ocr_readings_raw"])
 
 
@@ -71,8 +82,8 @@ def test_real_mode_has_independent_sources_controls_and_warning():
     app = real_app()
     labels = {item.label for item in app.button}
     assert {
-        "Iniciar OCR",
-        "Procesar siguiente frame",
+        "Iniciar",
+        "Procesar siguiente fotograma",
         "Pausar",
         "Continuar",
         "Finalizar",
@@ -84,6 +95,12 @@ def test_real_mode_has_independent_sources_controls_and_warning():
         "auxiliares y requieren revisión humana" in item.value for item in app.info
     )
     assert any("ROI" in item.value and "no se utiliza" in item.value for item in app.caption)
+    assert any(
+        "Backend PaddleOCR: disponible" in item.value for item in app.caption
+    )
+    assert next(
+        item for item in app.slider if item.label == "Evaluar OCR cada N frames"
+    ).value == 15
 
 
 def test_real_mode_does_not_start_automatically():
@@ -101,6 +118,17 @@ def test_real_start_and_first_frame_use_injected_reader_without_yolo():
     assert len(app.session_state["plate_session_batch_readings"]) == 1
     assert app.session_state["plate_session_source_id"].startswith("local-video:")
     assert app.session_state["plate_session_batch_id"].startswith("plate:")
+    assert app.session_state["plate_session_annotated_frame"] is not None
+    assert app.session_state["plate_session_last_processed_frame"] >= 1
+    metric_labels = {item.label for item in app.metric}
+    assert {
+        "Estado",
+        "Fotograma",
+        "Progreso",
+        "Lecturas encontradas",
+        "FPS de procesamiento",
+    } <= metric_labels
+    assert app.get("progress")
 
 
 def test_real_plate_is_masked_until_explicit_reveal():
@@ -115,6 +143,31 @@ def test_real_plate_is_masked_until_explicit_reveal():
     assert [(item.action, item.reading_id) for item in audit] == [
         ("REVEAL", app.session_state["plate_session_batch_readings"][0].reading_id)
     ]
+
+
+def test_progressive_viewer_masks_detected_region_by_default():
+    app = real_app(reader=FakeReader([plate()]))
+    button(app, "Iniciar").click().run()
+    annotated = app.session_state["plate_session_annotated_frame"]
+    assert app.session_state["plate_session_protect_viewer"] is True
+    assert tuple(annotated[42, 50]) == (24, 24, 24)
+
+
+def test_full_plate_view_requires_explicit_privacy_toggle():
+    app = real_app(reader=FakeReader([plate()]))
+    button(app, "Iniciar").click().run()
+    button(app, "Pausar").click().run()
+    privacy = next(
+        item
+        for item in app.toggle
+        if item.label == "Enmascarar matrículas en el visor"
+    )
+    privacy.set_value(False).run()
+    assert not app.exception
+    assert app.session_state["plate_session_protect_viewer"] is False
+    annotated = app.session_state["plate_session_annotated_frame"]
+    assert tuple(annotated[42, 50]) != (24, 24, 24)
+    assert any("Privacidad desactivada" in item.value for item in app.warning)
 
 
 def test_manual_correction_is_review_only_and_does_not_change_candidate():
@@ -145,16 +198,20 @@ def test_pause_continue_reset_and_finish_are_independent():
     app = start_and_process(real_app(reader=FakeReader([plate()])))
     button(app, "Pausar").click().run()
     assert app.session_state["plate_session_controller"].state is PlateAnalysisState.PAUSED
+    assert state_metric(app) == "PAUSED"
     frame = app.session_state["plate_session_last_processed_frame"]
     button(app, "Continuar").click().run()
     assert app.session_state["plate_session_controller"].state is PlateAnalysisState.RUNNING
-    assert app.session_state["plate_session_last_processed_frame"] == frame
+    assert state_metric(app) == "RUNNING"
+    assert app.session_state["plate_session_last_processed_frame"] > frame
     button(app, "Finalizar").click().run()
     assert app.session_state["plate_session_controller"].state is PlateAnalysisState.FINISHED
+    assert state_metric(app) == "COMPLETED"
     assert len(app.session_state["plate_session_batch_readings"]) == 1
     button(app, "Reiniciar").click().run()
     assert app.session_state["plate_session_controller"] is None
     assert app.session_state["plate_session_batch_readings"] == ()
+    assert state_metric(app) == "IDLE"
 
 
 def test_changing_source_cleans_controller_batch_and_reveal_audit():
@@ -194,7 +251,8 @@ def test_corrupt_upload_is_controlled_and_cannot_start():
     assert not app.exception
     assert app.session_state["plate_session_controller"] is None
     assert app.session_state["plate_session_uploaded_video"] is None
-    assert button(app, "Iniciar OCR").disabled
+    assert button(app, "Iniciar").disabled
+    assert state_metric(app) == "ERROR"
     assert any("OpenCV no pudo abrir" in item.value for item in app.error)
 
 
@@ -218,7 +276,7 @@ def test_missing_paddleocr_is_a_controlled_optional_error():
     app = AppTest.from_file(str(OCR_PAGE), default_timeout=30).run()
     next(item for item in app.segmented_control if item.label == "Modo de lecturas de placas").set_value("Análisis OCR real").run()
     if any("Backend PaddleOCR: no instalado" in item.value for item in app.caption):
-        button(app, "Iniciar OCR").click().run()
+        button(app, "Iniciar").click().run()
         assert not app.exception
         assert any("PaddleOCR no está instalado" in item.value for item in app.error)
 

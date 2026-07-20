@@ -13,7 +13,8 @@ class PlateAnalysisState(str, Enum):
     IDLE = "IDLE"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
-    FINISHED = "FINISHED"
+    COMPLETED = "COMPLETED"
+    FINISHED = "COMPLETED"  # Alias histÃ³rico para consumidores existentes.
     ERROR = "ERROR"
 
 
@@ -25,6 +26,24 @@ class PlateReadingStatus(str, Enum):
 
 class PlateReadingOrigin(str, Enum):
     OPERATIONAL_OCR = "OPERATIONAL_OCR"
+
+
+@dataclass(frozen=True)
+class PlateFrameDetection:
+    """Lectura visible del fotograma con geometrÃ­a producida por el OCR."""
+
+    normalized_text: str = field(repr=False)
+    confidence: float
+    bbox: tuple[float, float, float, float] | None = None
+    polygon: tuple[tuple[float, float], ...] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.normalized_text:
+            raise ValueError("Una detecciÃ³n necesita texto normalizado.")
+        if not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("confidence debe estar entre 0 y 1.")
+        if self.polygon is not None and len(self.polygon) < 3:
+            raise ValueError("Un polÃ­gono OCR necesita al menos tres puntos.")
 
 
 @dataclass(frozen=True)
@@ -67,6 +86,8 @@ class PlateFrameResult:
     end_of_source: bool
     frame: np.ndarray | None = field(default=None, repr=False, compare=False)
     roi_bbox: tuple[int, int, int, int] | None = None
+    detections: tuple[PlateFrameDetection, ...] = ()
+    processing_fps: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.source_id:
@@ -75,6 +96,8 @@ class PlateFrameResult:
             raise ValueError("El frame y el timestamp no pueden ser negativos.")
         if self.candidate_count < 0:
             raise ValueError("candidate_count no puede ser negativo.")
+        if not math.isfinite(self.processing_fps) or self.processing_fps < 0:
+            raise ValueError("processing_fps debe ser finito y no negativo.")
 
 
 @dataclass(frozen=True)
@@ -101,6 +124,7 @@ class PlateBatchResult:
 __all__ = [
     "PlateAnalysisState",
     "PlateBatchResult",
+    "PlateFrameDetection",
     "PlateFrameResult",
     "PlateReadingCandidate",
     "PlateReadingOrigin",

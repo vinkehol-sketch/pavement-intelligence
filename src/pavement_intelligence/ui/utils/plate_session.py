@@ -21,6 +21,10 @@ PLATE_SESSION_DEFAULTS = {
     "plate_session_source_id": None,
     "plate_session_batch_id": None,
     "plate_session_frame_result": None,
+    "plate_session_annotated_frame": None,
+    "plate_session_last_frame": None,
+    "plate_session_last_detections": (),
+    "plate_session_source_info": None,
     "plate_session_batch_readings": (),
     "plate_session_last_processed_frame": None,
     "plate_session_error": "",
@@ -32,6 +36,8 @@ PLATE_SESSION_DEFAULTS = {
     "plate_session_uploaded_file_id": None,
     "plate_session_uploaded_hash": None,
     "plate_session_upload_status": None,
+    "plate_session_protect_viewer": True,
+    "plate_session_skip_auto_once": False,
 }
 
 
@@ -91,6 +97,10 @@ def cleanup_plate_session(
     session["plate_session_controller"] = None
     session["plate_session_uploaded_video"] = None
     session["plate_session_frame_result"] = None
+    session["plate_session_annotated_frame"] = None
+    session["plate_session_last_frame"] = None
+    session["plate_session_last_detections"] = ()
+    session["plate_session_source_info"] = None
     session["plate_session_last_processed_frame"] = None
     session["plate_session_visible_reading_id"] = None
     if clear_results:
@@ -104,6 +114,8 @@ def cleanup_plate_session(
         session["plate_session_uploaded_file_id"] = None
         session["plate_session_uploaded_hash"] = None
         session["plate_session_upload_status"] = None
+        session["plate_session_protect_viewer"] = True
+        session["plate_session_skip_auto_once"] = False
 
 
 def mask_plate_text(text: str) -> str:

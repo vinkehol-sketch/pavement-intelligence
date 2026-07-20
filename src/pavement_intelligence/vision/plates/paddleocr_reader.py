@@ -57,10 +57,29 @@ class PaddleOCRPlateReader(AbstractPlateReader):
     @staticmethod
     def _modern_candidates(results: object) -> list[tuple[object, object]]:
         """Extract text/score pairs from PaddleOCR 3.x result objects."""
+        return [
+            (text, score)
+            for text, score, _polygon, _bbox in PaddleOCRPlateReader._modern_detections(
+                results
+            )
+        ]
+
+    @staticmethod
+    def _modern_detections(
+        results: object,
+    ) -> list[
+        tuple[
+            object,
+            object,
+            tuple[tuple[float, float], ...] | None,
+            tuple[float, float, float, float] | None,
+        ]
+    ]:
+        """Extrae texto, confianza y geometrÃ­a real de PaddleOCR 3.x."""
         if not isinstance(results, (list, tuple)):
             return []
 
-        candidates: list[tuple[object, object]] = []
+        detections = []
         for item in results:
             payload = getattr(item, "json", item)
             if callable(payload):
@@ -73,14 +92,43 @@ class PaddleOCRPlateReader(AbstractPlateReader):
             texts = data.get("rec_texts", ())
             scores = data.get("rec_scores", ())
             try:
-                candidates.extend(zip(texts, scores, strict=False))
+                pairs = list(zip(texts, scores, strict=False))
             except TypeError:
                 continue
-        return candidates
+            polygons = data.get("rec_polys", ())
+            boxes = data.get("rec_boxes", ())
+            for index, (text, score) in enumerate(pairs):
+                polygon = PaddleOCRPlateReader._coerce_polygon(
+                    PaddleOCRPlateReader._item_at(polygons, index)
+                )
+                bbox = PaddleOCRPlateReader._coerce_bbox(
+                    PaddleOCRPlateReader._item_at(boxes, index)
+                )
+                detections.append((text, score, polygon, bbox))
+        return detections
 
     @staticmethod
     def _legacy_candidates(results: object) -> list[tuple[object, object]]:
         """Extract text/score pairs from PaddleOCR 2.x nested results."""
+        return [
+            (text, score)
+            for text, score, _polygon, _bbox in PaddleOCRPlateReader._legacy_detections(
+                results
+            )
+        ]
+
+    @staticmethod
+    def _legacy_detections(
+        results: object,
+    ) -> list[
+        tuple[
+            object,
+            object,
+            tuple[tuple[float, float], ...] | None,
+            tuple[float, float, float, float] | None,
+        ]
+    ]:
+        """Extrae texto, confianza y geometrÃ­a real de PaddleOCR 2.x."""
         if (
             not isinstance(results, (list, tuple))
             or not results
@@ -89,14 +137,65 @@ class PaddleOCRPlateReader(AbstractPlateReader):
         ):
             return []
 
-        candidates: list[tuple[object, object]] = []
+        detections = []
         for line in results[0]:
             if not isinstance(line, (list, tuple)) or len(line) < 2:
                 continue
             candidate = line[1]
             if isinstance(candidate, (list, tuple)) and len(candidate) >= 2:
-                candidates.append((candidate[0], candidate[1]))
-        return candidates
+                polygon = PaddleOCRPlateReader._coerce_polygon(line[0])
+                detections.append(
+                    (
+                        candidate[0],
+                        candidate[1],
+                        polygon,
+                        PaddleOCRPlateReader._bbox_from_polygon(polygon),
+                    )
+                )
+        return detections
+
+    @staticmethod
+    def _item_at(values: object, index: int) -> object:
+        try:
+            return values[index]  # type: ignore[index]
+        except (IndexError, KeyError, TypeError):
+            return None
+
+    @staticmethod
+    def _coerce_polygon(
+        value: object,
+    ) -> tuple[tuple[float, float], ...] | None:
+        try:
+            points = []
+            for point in value:  # type: ignore[union-attr]
+                x, y = float(point[0]), float(point[1])
+                if not math.isfinite(x) or not math.isfinite(y):
+                    return None
+                points.append((x, y))
+        except (IndexError, TypeError, ValueError):
+            return None
+        return tuple(points) if len(points) >= 3 else None
+
+    @staticmethod
+    def _coerce_bbox(value: object) -> tuple[float, float, float, float] | None:
+        try:
+            x1, y1, x2, y2 = [float(item) for item in value]  # type: ignore[union-attr]
+        except (TypeError, ValueError):
+            return None
+        values = (x1, y1, x2, y2)
+        if not all(math.isfinite(item) for item in values) or x1 >= x2 or y1 >= y2:
+            return None
+        return values
+
+    @staticmethod
+    def _bbox_from_polygon(
+        polygon: tuple[tuple[float, float], ...] | None,
+    ) -> tuple[float, float, float, float] | None:
+        if polygon is None:
+            return None
+        xs = [point[0] for point in polygon]
+        ys = [point[1] for point in polygon]
+        return min(xs), min(ys), max(xs), max(ys)
 
     def _hash_plate(self, text: str) -> str:
         """Genera un hash SHA-256 truncado de la placa."""
@@ -149,17 +248,19 @@ class PaddleOCRPlateReader(AbstractPlateReader):
                     use_doc_unwarping=False,
                     use_textline_orientation=False,
                 )
-                candidates = self._modern_candidates(results)
+                detections = self._modern_detections(results)
             else:
                 results = self._ocr.ocr(roi, cls=True)
-                candidates = self._legacy_candidates(results)
+                detections = self._legacy_detections(results)
         except Exception:
             return None
 
         best_text = ""
         best_conf = -1.0
+        best_polygon = None
+        best_bbox = None
 
-        for text, conf in candidates:
+        for text, conf, polygon, bbox in detections:
             normalized_text = self._normalize_text(text)
             if not normalized_text or not isinstance(conf, Real) or isinstance(conf, bool):
                 continue
@@ -169,16 +270,34 @@ class PaddleOCRPlateReader(AbstractPlateReader):
             if numeric_conf > best_conf:
                 best_conf = numeric_conf
                 best_text = normalized_text
+                best_polygon = polygon
+                best_bbox = bbox
 
         if best_conf < self._min_confidence or not best_text:
             return None
 
         plate_hash = self._hash_plate(best_text)
+        translated_polygon = (
+            tuple((px + x1, py + y1) for px, py in best_polygon)
+            if best_polygon is not None
+            else None
+        )
+        translated_bbox = (
+            (
+                best_bbox[0] + x1,
+                best_bbox[1] + y1,
+                best_bbox[2] + x1,
+                best_bbox[3] + y1,
+            )
+            if best_bbox is not None
+            else self._bbox_from_polygon(translated_polygon)
+        )
 
         return PlateResult(
             text_raw=None if self._anonymize else best_text,
             text_hash=plate_hash,
             confidence=best_conf,
-            bbox=None,  # bbox dentro del ROI
+            bbox=translated_bbox,
             is_anonymized=self._anonymize,
+            polygon=translated_polygon,
         )

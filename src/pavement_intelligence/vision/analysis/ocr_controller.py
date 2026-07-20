@@ -6,6 +6,7 @@ import math
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Protocol
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ import numpy as np
 from pavement_intelligence.vision.analysis.ocr_models import (
     PlateAnalysisState,
     PlateBatchResult,
+    PlateFrameDetection,
     PlateFrameResult,
     PlateReadingCandidate,
     PlateReadingOrigin,
@@ -25,7 +27,7 @@ from pavement_intelligence.vision.plates.base import AbstractPlateReader, PlateR
 
 @dataclass(frozen=True)
 class PlateAnalysisConfig:
-    every_n_frames: int = 5
+    every_n_frames: int = 15
     dedup_window_seconds: float = 5.0
     max_dedup_entries: int = 256
     max_batch_readings: int = 1_000
@@ -118,6 +120,8 @@ class PlateAnalysisController:
         self._warnings: list[str] = []
         self._dedup: OrderedDict[str, _DedupEntry] = OrderedDict()
         self._last_timestamp_seconds = 0.0
+        self._processed_frames = 0
+        self._processing_elapsed_seconds = 0.0
 
     @property
     def readings(self) -> tuple[PlateReadingCandidate, ...]:
@@ -160,11 +164,12 @@ class PlateAnalysisController:
             return self.last_result
         if self.state is not PlateAnalysisState.RUNNING:
             return None
+        started_at = perf_counter()
         try:
             frame_result = self.source.read()
             if not frame_result.success or frame_result.frame is None:
                 self.source.close()
-                self.state = PlateAnalysisState.FINISHED
+                self.state = PlateAnalysisState.COMPLETED
                 self.last_result = PlateFrameResult(
                     source_id=self._source_id,
                     frame_index=max(0, frame_result.frame_number),
@@ -175,6 +180,7 @@ class PlateAnalysisController:
                     readings=(),
                     warnings=("Fin de la fuente OCR.",),
                     end_of_source=True,
+                    processing_fps=self.processing_fps,
                 )
                 return self.last_result
 
@@ -189,6 +195,7 @@ class PlateAnalysisController:
             )
             regions: tuple[PlateRegion, ...] = ()
             emitted: list[PlateReadingCandidate] = []
+            detections: list[PlateFrameDetection] = []
             if (frame_index - 1) % self.config.every_n_frames == 0:
                 regions = self.extractor.extract(frame_result.frame)
                 for region in regions:
@@ -201,10 +208,19 @@ class PlateAnalysisController:
                     )
                     if candidate is None:
                         continue
+                    detections.append(
+                        PlateFrameDetection(
+                            normalized_text=candidate.normalized_text,
+                            confidence=candidate.confidence,
+                            bbox=result.bbox if result is not None else None,
+                            polygon=result.polygon if result is not None else None,
+                        )
+                    )
                     accepted = self._deduplicate(candidate)
                     if accepted is not None:
                         emitted.append(accepted)
             roi_bbox = regions[0].bbox if regions else None
+            self._record_processed_frame(perf_counter() - started_at)
             self.last_result = PlateFrameResult(
                 source_id=self._source_id,
                 frame_index=frame_index,
@@ -215,6 +231,8 @@ class PlateAnalysisController:
                 end_of_source=False,
                 frame=frame_result.frame.copy(),
                 roi_bbox=roi_bbox,
+                detections=tuple(detections),
+                processing_fps=self.processing_fps,
             )
             return self.last_result
         except Exception as exc:
@@ -227,13 +245,30 @@ class PlateAnalysisController:
                 readings=(),
                 warnings=(self.error,),
                 end_of_source=True,
+                processing_fps=self.processing_fps,
             )
             return self.last_result
+
+    @property
+    def processing_fps(self) -> float:
+        if self._processing_elapsed_seconds <= 0.0:
+            return 0.0
+        return self._processed_frames / self._processing_elapsed_seconds
+
+    def step(self) -> PlateFrameResult | None:
+        """Procesa un fotograma aunque la sesión esté pausada y vuelve a pausarla."""
+        was_paused = self.state is PlateAnalysisState.PAUSED
+        if was_paused:
+            self.state = PlateAnalysisState.RUNNING
+        result = self.process_next()
+        if was_paused and self.state is PlateAnalysisState.RUNNING:
+            self.state = PlateAnalysisState.PAUSED
+        return result
 
     def finish(self) -> PlateBatchResult:
         self.source.close()
         if self.state is not PlateAnalysisState.ERROR:
-            self.state = PlateAnalysisState.FINISHED
+            self.state = PlateAnalysisState.COMPLETED
         return self.batch_result()
 
     def reset(self) -> None:
@@ -251,7 +286,7 @@ class PlateAnalysisController:
     def close(self) -> None:
         self.source.close()
         if self.state not in {PlateAnalysisState.IDLE, PlateAnalysisState.ERROR}:
-            self.state = PlateAnalysisState.FINISHED
+            self.state = PlateAnalysisState.COMPLETED
 
     def batch_result(self) -> PlateBatchResult:
         batch_id = self._plate_batch_id or f"plate:{uuid4().hex}"
@@ -368,6 +403,10 @@ class PlateAnalysisController:
         self.source.close()
         self.state = PlateAnalysisState.ERROR
 
+    def _record_processed_frame(self, elapsed_seconds: float) -> None:
+        self._processed_frames += 1
+        self._processing_elapsed_seconds += max(elapsed_seconds, 1e-9)
+
     def _clear_runtime_state(self) -> None:
         self.last_result = None
         self.error = ""
@@ -376,6 +415,8 @@ class PlateAnalysisController:
         self._warnings.clear()
         self._dedup.clear()
         self._last_timestamp_seconds = 0.0
+        self._processed_frames = 0
+        self._processing_elapsed_seconds = 0.0
 
 
 __all__ = [

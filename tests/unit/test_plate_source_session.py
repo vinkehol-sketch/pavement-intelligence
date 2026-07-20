@@ -103,6 +103,10 @@ def test_cleanup_closes_controller_and_clears_real_batch():
     assert session["plate_session_batch_id"] is None
     assert session["plate_session_batch_readings"] == ()
     assert session["plate_session_error"] == ""
+    assert session["plate_session_annotated_frame"] is None
+    assert session["plate_session_last_frame"] is None
+    assert session["plate_session_last_detections"] == ()
+    assert session["plate_session_protect_viewer"] is True
 
 
 def test_cleanup_is_idempotent():
