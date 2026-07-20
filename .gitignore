@@ -28,6 +28,9 @@ data/videos/*
 !data/videos/samples/*.mp4
 !data/videos/samples/
 !data/videos/samples/*.mp4
+# Videos locales de validación; conservar el demo versionado indispensable.
+data/samples/ui/assets/*.mp4
+!data/samples/ui/assets/traffic_monitoring_demo.mp4
 data/models/*
 !data/models/.gitkeep
 !data/models/yolov8n.pt
