@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError, version
 from numbers import Real
 from typing import Optional
 import numpy as np
@@ -31,10 +33,70 @@ class PaddleOCRPlateReader(AbstractPlateReader):
         self._anonymize = anonymize
         self._lang = lang
         self._ocr = None
+        self._paddleocr_major = 2
 
     def _load_model(self) -> None:
         from paddleocr import PaddleOCR
-        self._ocr = PaddleOCR(use_angle_cls=True, lang=self._lang, show_log=False)
+
+        try:
+            self._paddleocr_major = int(version("paddleocr").split(".", maxsplit=1)[0])
+        except (PackageNotFoundError, ValueError):
+            self._paddleocr_major = 2
+
+        if self._paddleocr_major >= 3:
+            self._ocr = PaddleOCR(
+                lang=self._lang,
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                enable_mkldnn=False,
+            )
+        else:
+            self._ocr = PaddleOCR(use_angle_cls=True, lang=self._lang, show_log=False)
+
+    @staticmethod
+    def _modern_candidates(results: object) -> list[tuple[object, object]]:
+        """Extract text/score pairs from PaddleOCR 3.x result objects."""
+        if not isinstance(results, (list, tuple)):
+            return []
+
+        candidates: list[tuple[object, object]] = []
+        for item in results:
+            payload = getattr(item, "json", item)
+            if callable(payload):
+                payload = payload()
+            if not isinstance(payload, Mapping):
+                continue
+            data = payload.get("res", payload)
+            if not isinstance(data, Mapping):
+                continue
+            texts = data.get("rec_texts", ())
+            scores = data.get("rec_scores", ())
+            try:
+                candidates.extend(zip(texts, scores, strict=False))
+            except TypeError:
+                continue
+        return candidates
+
+    @staticmethod
+    def _legacy_candidates(results: object) -> list[tuple[object, object]]:
+        """Extract text/score pairs from PaddleOCR 2.x nested results."""
+        if (
+            not isinstance(results, (list, tuple))
+            or not results
+            or not isinstance(results[0], (list, tuple))
+            or not results[0]
+        ):
+            return []
+
+        candidates: list[tuple[object, object]] = []
+        for line in results[0]:
+            if not isinstance(line, (list, tuple)) or len(line) < 2:
+                continue
+            candidate = line[1]
+            if isinstance(candidate, (list, tuple)) and len(candidate) >= 2:
+                candidates.append((candidate[0], candidate[1]))
+        return candidates
 
     def _hash_plate(self, text: str) -> str:
         """Genera un hash SHA-256 truncado de la placa."""
@@ -76,27 +138,28 @@ class PaddleOCRPlateReader(AbstractPlateReader):
         if self._ocr is None:
             try:
                 self._load_model()
-            except (ImportError, ModuleNotFoundError):
+            except Exception:
                 return None
 
         try:
-            results = self._ocr.ocr(roi, cls=True)
+            if self._paddleocr_major >= 3:
+                results = self._ocr.predict(
+                    roi,
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False,
+                )
+                candidates = self._modern_candidates(results)
+            else:
+                results = self._ocr.ocr(roi, cls=True)
+                candidates = self._legacy_candidates(results)
         except Exception:
-            return None
-
-        if not isinstance(results, (list, tuple)) or not results or not isinstance(results[0], (list, tuple)) or not results[0]:
             return None
 
         best_text = ""
         best_conf = -1.0
 
-        for line in results[0]:
-            if not isinstance(line, (list, tuple)) or len(line) < 2:
-                continue
-            candidate = line[1]
-            if not isinstance(candidate, (list, tuple)) or len(candidate) < 2:
-                continue
-            text, conf = candidate[0], candidate[1]
+        for text, conf in candidates:
             normalized_text = self._normalize_text(text)
             if not normalized_text or not isinstance(conf, Real) or isinstance(conf, bool):
                 continue
