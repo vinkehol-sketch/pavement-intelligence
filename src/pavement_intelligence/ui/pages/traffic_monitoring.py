@@ -46,6 +46,12 @@ from pavement_intelligence.ui.utils.styles import load_dashboard_css, render_sta
 from pavement_intelligence.ui.utils.traffic_analysis_state import (
     prepare_session_for_real_analysis,
 )
+from pavement_intelligence.ui.utils.video_catalog import (
+    LocalVideo,
+    discover_local_videos,
+    resolve_video_path,
+    stable_video_source_id,
+)
 from pavement_intelligence.vision.analysis import (
     AnalysisState,
     TrafficAnalysisController,
@@ -72,10 +78,16 @@ MONITORING_FRAME = (
 DEMO_VIDEO = (
     PROJECT_ROOT / "data" / "samples" / "ui" / "assets" / "traffic_monitoring_demo.mp4"
 )
+DEMO_VIDEO_RELATIVE = DEMO_VIDEO.relative_to(PROJECT_ROOT).as_posix()
 STATIC_MODE = "Imagen demostrativa"
 VIDEO_MODE = "Video pregrabado"
 CAMERA_MODE = "Cámara en vivo"
 MODEL_PATH = PROJECT_ROOT / "data" / "models" / "yolov8n.pt"
+
+SELECTED_VIDEO_KEY = "traffic_selected_video"
+SELECTED_VIDEO_PATH_KEY = "traffic_selected_video_path"
+SELECTED_VIDEO_DURATION_KEY = "traffic_selected_video_duration"
+VIDEO_CATALOG_SIGNATURE_KEY = "traffic_video_catalog_signature"
 
 
 @st.cache_data(max_entries=1)
@@ -86,6 +98,14 @@ def _load_state():
 @st.cache_data(max_entries=2)
 def _inspect_video(path: str):
     return inspect_video(path)
+
+
+@st.cache_data(ttl=30, max_entries=1)
+def _load_video_catalog() -> tuple[LocalVideo, ...]:
+    return discover_local_videos(
+        PROJECT_ROOT,
+        built_in_video=DEMO_VIDEO_RELATIVE,
+    )
 
 
 def _export_csv() -> bytes:
@@ -124,6 +144,18 @@ def _format_clock(seconds: float) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
+def _duration_text(duration_seconds: float | None) -> str:
+    if duration_seconds is None:
+        return "Duración no disponible"
+    return f"{duration_seconds:.1f} s ({_format_clock(duration_seconds)})"
+
+
+def _video_option_label(relative_path: str, catalog: tuple[LocalVideo, ...]) -> str:
+    entry = next(item for item in catalog if item.relative_path == relative_path)
+    prefix = "Video demostrativo corto" if entry.built_in else entry.filename
+    return f"{prefix} · {_duration_text(entry.duration_seconds)} · {entry.relative_path}"
+
+
 def _close_real_controller() -> None:
     controller = st.session_state.get("traffic_analysis_controller")
     if controller is not None:
@@ -132,6 +164,26 @@ def _close_real_controller() -> None:
     st.session_state["traffic_analysis_running"] = False
     st.session_state["traffic_analysis_paused"] = False
     clear_congestion_session(st.session_state)
+
+
+def _apply_video_selection(entry: LocalVideo) -> None:
+    """Cierra el lote anterior y conserva la nueva selección sin iniciarla."""
+    _close_real_controller()
+    st.session_state[SELECTED_VIDEO_PATH_KEY] = entry.relative_path
+    st.session_state[SELECTED_VIDEO_DURATION_KEY] = entry.duration_seconds
+    st.session_state["traffic_analysis_current_result"] = None
+    st.session_state["traffic_analysis_batch_events"] = []
+    st.session_state["traffic_analysis_source_metadata"] = None
+    st.session_state["traffic_analysis_error"] = ""
+
+
+def _congestion_source_id(source_mode: str, fallback: str) -> str:
+    if source_mode != VIDEO_MODE:
+        return fallback
+    relative_path = st.session_state.get(
+        SELECTED_VIDEO_PATH_KEY, DEMO_VIDEO_RELATIVE
+    )
+    return stable_video_source_id(str(relative_path))
 
 
 def _pipeline_factory(source):
@@ -159,7 +211,17 @@ def _start_real_analysis(source_mode: str, camera_index: int) -> None:
     prepare_session_for_real_analysis(st.session_state)
     try:
         if source_mode == VIDEO_MODE:
-            source = VideoFileSource(DEMO_VIDEO)
+            selected_relative = str(
+                st.session_state.get(
+                    SELECTED_VIDEO_PATH_KEY, DEMO_VIDEO_RELATIVE
+                )
+            )
+            selected_path = resolve_video_path(
+                PROJECT_ROOT,
+                selected_relative,
+                built_in_video=DEMO_VIDEO_RELATIVE,
+            )
+            source = VideoFileSource(selected_path)
         else:
             source = CameraSource(camera_index)
         controller = TrafficAnalysisController(source, _pipeline_factory(source))
@@ -173,7 +235,7 @@ def _start_real_analysis(source_mode: str, camera_index: int) -> None:
         st.session_state["traffic_analysis_source_metadata"] = metadata
         start_congestion_session(
             st.session_state,
-            metadata.source_id,
+            _congestion_source_id(source_mode, metadata.source_id),
             monitoring_point_id=state.source.point_name,
         )
     except Exception as exc:
@@ -227,6 +289,31 @@ st.session_state.setdefault("traffic_analysis_batch_events", [])
 st.session_state.setdefault("traffic_analysis_error", "")
 st.session_state.setdefault("traffic_analysis_source_metadata", None)
 st.session_state.setdefault("traffic_analysis_source_type", STATIC_MODE)
+
+video_catalog = _load_video_catalog()
+if not video_catalog:
+    st.error(
+        "No se encontraron videos locales permitidos para el análisis.",
+        icon=":material/video_file:",
+    )
+    st.stop()
+catalog_by_path = {item.relative_path: item for item in video_catalog}
+default_video = (
+    DEMO_VIDEO_RELATIVE
+    if DEMO_VIDEO_RELATIVE in catalog_by_path
+    else video_catalog[0].relative_path
+)
+selected_video = str(st.session_state.get(SELECTED_VIDEO_KEY, default_video))
+if selected_video not in catalog_by_path:
+    selected_video = default_video
+st.session_state[SELECTED_VIDEO_KEY] = selected_video
+selected_entry = catalog_by_path[selected_video]
+if SELECTED_VIDEO_PATH_KEY not in st.session_state:
+    st.session_state[SELECTED_VIDEO_PATH_KEY] = selected_entry.relative_path
+    st.session_state[SELECTED_VIDEO_DURATION_KEY] = selected_entry.duration_seconds
+st.session_state[VIDEO_CATALOG_SIGNATURE_KEY] = tuple(
+    (item.relative_path, item.duration_seconds) for item in video_catalog
+)
 
 title_col, action_col = st.columns([7, 4], vertical_alignment="bottom")
 with title_col:
@@ -537,14 +624,45 @@ def _render_real_analysis(source_mode: str) -> None:
     )
     camera_index = 0
     if source_mode == VIDEO_MODE:
-        st.selectbox(
-            "Video local",
-            [str(DEMO_VIDEO.relative_to(PROJECT_ROOT))],
-            key="traffic_analysis_video_selection",
-            help="Solo se muestran videos locales validados dentro del proyecto.",
+        selected_relative = st.selectbox(
+            "Seleccionar video de análisis",
+            [item.relative_path for item in video_catalog],
+            key=SELECTED_VIDEO_KEY,
+            format_func=lambda value: _video_option_label(value, video_catalog),
+            help=(
+                "El catálogo solo incluye el video demostrativo incorporado y "
+                "archivos validados dentro de data/videos."
+            ),
         )
+        selected_entry = catalog_by_path[selected_relative]
+        if selected_relative != st.session_state.get(SELECTED_VIDEO_PATH_KEY):
+            _apply_video_selection(selected_entry)
+        st.caption(
+            f"Archivo seleccionado: `{selected_entry.relative_path}` · "
+            f"{_duration_text(selected_entry.duration_seconds)}"
+        )
+        if (
+            selected_entry.duration_seconds is not None
+            and selected_entry.duration_seconds < 10.0
+        ):
+            st.warning(
+                "Este video dura menos de 10 segundos y no permite completar "
+                "el calentamiento de la estimación de congestión.",
+                icon=":material/timer_off:",
+            )
+        elif selected_entry.duration_seconds is not None:
+            st.info(
+                "Este video supera el calentamiento de 10 segundos y permite "
+                "validar visualmente la transición desde Datos insuficientes.",
+                icon=":material/timer:",
+            )
         try:
-            selected_info = _inspect_video(str(DEMO_VIDEO))
+            selected_path = resolve_video_path(
+                PROJECT_ROOT,
+                selected_relative,
+                built_in_video=DEMO_VIDEO_RELATIVE,
+            )
+            selected_info = _inspect_video(str(selected_path))
             st.caption(
                 f"{selected_info.resolution} · {selected_info.fps:.1f} FPS · "
                 f"{selected_info.total_frames} fotogramas · {_format_clock(selected_info.duration_seconds)}"
@@ -601,7 +719,10 @@ def _render_real_analysis(source_mode: str) -> None:
             key="real_reset",
         ):
             metadata = controller.reset()
-            reset_congestion_session(st.session_state, metadata.source_id)
+            reset_congestion_session(
+                st.session_state,
+                _congestion_source_id(source_mode, metadata.source_id),
+            )
             st.session_state["traffic_analysis_source_metadata"] = metadata
             st.session_state["traffic_analysis_current_result"] = None
             st.session_state["traffic_analysis_running"] = True

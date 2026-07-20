@@ -4,6 +4,7 @@ import inspect
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from pavement_intelligence.domain.traffic.congestion import CongestionLevel
@@ -34,6 +35,8 @@ from pavement_intelligence.vision.capture import SourceInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 MONITORING_PAGE = ROOT / "src/pavement_intelligence/ui/pages/traffic_monitoring.py"
+DEMO_VIDEO_RELATIVE = "data/samples/ui/assets/traffic_monitoring_demo.mp4"
+COMPLEX_VIDEO_RELATIVE = "data/videos/samples/complex_traffic.mp4"
 
 
 @dataclass(frozen=True)
@@ -293,6 +296,135 @@ def test_camera_apptest_does_not_open_device_or_create_congestion_batch():
     app.segmented_control[0].set_value("Cámara en vivo").run()
     assert not app.exception
     assert app.session_state[COORDINATOR_KEY] is None
+
+
+def video_selection_app():
+    app = AppTest.from_file(str(MONITORING_PAGE), default_timeout=30).run()
+    app.segmented_control[0].set_value("Video pregrabado").run()
+    assert not app.exception
+    return app
+
+
+def test_video_selector_lists_controlled_videos_and_preserves_demo_default():
+    app = video_selection_app()
+    selector = app.selectbox[0]
+    assert selector.label == "Seleccionar video de análisis"
+    assert selector.value == DEMO_VIDEO_RELATIVE
+    assert app.session_state["traffic_selected_video_path"] == DEMO_VIDEO_RELATIVE
+    assert app.session_state["traffic_selected_video_duration"] == 8.0
+    assert any("complex_traffic.mp4" in option for option in selector.options)
+    assert any("video dura menos de 10 segundos" in item.value for item in app.warning)
+
+
+def test_selecting_complex_video_updates_safe_path_without_auto_start():
+    app = video_selection_app()
+    app.selectbox[0].set_value(COMPLEX_VIDEO_RELATIVE).run()
+    assert not app.exception
+    assert app.session_state["traffic_selected_video_path"] == COMPLEX_VIDEO_RELATIVE
+    assert app.session_state["traffic_selected_video_duration"] == pytest.approx(
+        53.9166666667
+    )
+    assert app.session_state["traffic_analysis_controller"] is None
+    assert app.session_state["traffic_analysis_running"] is False
+    assert any("supera el calentamiento de 10 segundos" in item.value for item in app.info)
+
+
+def test_start_uses_selected_complex_video_without_loading_yolo(monkeypatch):
+    opened_paths = []
+
+    class SelectedVideoSource:
+        def __init__(self, path):
+            self.path = Path(path)
+            opened_paths.append(self.path)
+
+        def close(self):
+            return None
+
+    class SelectedVideoController:
+        events = ()
+
+        def __init__(self, source, pipeline_factory):
+            self.source = source
+            self.pipeline_factory = pipeline_factory
+            self.state = AnalysisState.IDLE
+            self.last_result = None
+
+        def start(self):
+            self.state = AnalysisState.RUNNING
+            return SourceInfo(
+                self.source.path.name, "video_file", 12, 640, 360, 647, 0
+            )
+
+        def process_next(self):
+            return None
+
+        def close(self):
+            self.state = AnalysisState.FINISHED
+
+        def finish(self):
+            self.close()
+            return ()
+
+    monkeypatch.setattr(
+        "pavement_intelligence.vision.capture.VideoFileSource", SelectedVideoSource
+    )
+    monkeypatch.setattr(
+        "pavement_intelligence.vision.analysis.TrafficAnalysisController",
+        SelectedVideoController,
+    )
+
+    app = video_selection_app()
+    app.selectbox[0].set_value(COMPLEX_VIDEO_RELATIVE).run()
+    next(button for button in app.button if button.label == "Iniciar análisis").click().run()
+
+    assert not app.exception
+    assert opened_paths == [ROOT / COMPLEX_VIDEO_RELATIVE]
+    assert app.session_state[COORDINATOR_KEY] is not None
+    assert app.session_state[SOURCE_ID_KEY].startswith("local-video:")
+    assert app.session_state["traffic_analysis_running"] is True
+
+
+def test_changing_selected_video_closes_previous_lot_and_congestion():
+    app, controller = real_video_app()
+    app.run()
+    assert app.session_state[SNAPSHOT_KEY] is not None
+    app.session_state[ALERTS_KEY] = ("old-alert",)
+    app.session_state["traffic_analysis_batch_events"] = ["old-event"]
+
+    app.selectbox[0].set_value(COMPLEX_VIDEO_RELATIVE).run()
+
+    assert not app.exception
+    assert controller.state is AnalysisState.FINISHED
+    assert app.session_state["traffic_analysis_controller"] is None
+    assert app.session_state[SNAPSHOT_KEY] is None
+    assert app.session_state[PRESENTATION_KEY] is None
+    assert app.session_state[ERROR_KEY] == ""
+    assert app.session_state[ALERTS_KEY] == ()
+    assert app.session_state[LAST_FRAME_KEY] is None
+    assert app.session_state["traffic_analysis_batch_events"] == []
+    assert app.session_state["traffic_analysis_current_result"] is None
+    assert app.session_state["traffic_analysis_running"] is False
+
+
+def test_video_selector_is_hidden_in_static_and_camera_modes():
+    app = AppTest.from_file(str(MONITORING_PAGE), default_timeout=30).run()
+    assert not app.selectbox
+    app.segmented_control[0].set_value("Cámara en vivo").run()
+    assert not app.exception
+    assert all(
+        selector.label != "Seleccionar video de análisis" for selector in app.selectbox
+    )
+    assert app.session_state["traffic_analysis_controller"] is None
+
+
+def test_video_change_does_not_approve_review_or_transfer_tpda():
+    app = video_selection_app()
+    sentinel = {"source": "previous-reviewed-batch"}
+    app.session_state["traffic_review_approved"] = False
+    app.session_state["tpda_input_from_review"] = sentinel
+    app.selectbox[0].set_value(COMPLEX_VIDEO_RELATIVE).run()
+    assert app.session_state["traffic_review_approved"] is False
+    assert app.session_state["tpda_input_from_review"] is sentinel
 
 
 def test_page_contains_no_congestion_engine_or_aggregator_calculation():
