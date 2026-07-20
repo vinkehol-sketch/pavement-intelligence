@@ -6,6 +6,7 @@ import csv
 import datetime
 import io
 import time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -45,6 +46,15 @@ from pavement_intelligence.ui.utils.formatting import format_unit
 from pavement_intelligence.ui.utils.styles import load_dashboard_css, render_status_chip
 from pavement_intelligence.ui.utils.traffic_analysis_state import (
     prepare_session_for_real_analysis,
+)
+from pavement_intelligence.ui.utils.uploaded_video import (
+    ALLOWED_UPLOAD_EXTENSIONS,
+    MAX_UPLOAD_SIZE_MIB,
+    UploadedVideoError,
+    UploadedVideoHandle,
+    cleanup_uploaded_video,
+    store_uploaded_video,
+    uploaded_video_digest,
 )
 from pavement_intelligence.ui.utils.video_catalog import (
     LocalVideo,
@@ -88,6 +98,17 @@ SELECTED_VIDEO_KEY = "traffic_selected_video"
 SELECTED_VIDEO_PATH_KEY = "traffic_selected_video_path"
 SELECTED_VIDEO_DURATION_KEY = "traffic_selected_video_duration"
 VIDEO_CATALOG_SIGNATURE_KEY = "traffic_video_catalog_signature"
+
+LOCAL_VIDEO_SOURCE = "Video local del proyecto"
+UPLOAD_VIDEO_SOURCE = "Cargar video"
+VIDEO_SOURCE_MODE_KEY = "traffic_video_source_mode"
+VIDEO_SOURCE_ACTIVE_MODE_KEY = "traffic_video_source_active_mode"
+UPLOADED_VIDEO_WIDGET_KEY = "traffic_uploaded_video_file"
+UPLOADED_VIDEO_HANDLE_KEY = "traffic_uploaded_video_handle"
+UPLOADED_VIDEO_HASH_KEY = "traffic_uploaded_video_hash"
+UPLOADED_VIDEO_FILE_ID_KEY = "traffic_uploaded_video_file_id"
+UPLOADED_VIDEO_ERROR_KEY = "traffic_uploaded_video_error"
+UPLOADED_VIDEO_CLEANUP_TOKEN_KEY = "traffic_uploaded_video_cleanup_token"
 
 
 @st.cache_data(max_entries=1)
@@ -166,24 +187,65 @@ def _close_real_controller() -> None:
     clear_congestion_session(st.session_state)
 
 
-def _apply_video_selection(entry: LocalVideo) -> None:
-    """Cierra el lote anterior y conserva la nueva selección sin iniciarla."""
+def _clear_real_source_state() -> None:
+    """Cierra la fuente y elimina todo estado transitorio del lote anterior."""
     _close_real_controller()
-    st.session_state[SELECTED_VIDEO_PATH_KEY] = entry.relative_path
-    st.session_state[SELECTED_VIDEO_DURATION_KEY] = entry.duration_seconds
     st.session_state["traffic_analysis_current_result"] = None
     st.session_state["traffic_analysis_batch_events"] = []
     st.session_state["traffic_analysis_source_metadata"] = None
+    st.session_state["traffic_analysis_active_source_id"] = None
     st.session_state["traffic_analysis_error"] = ""
+    st.session_state["vision_events_raw"] = []
+    st.session_state["vision_events_reviewed"] = []
+    st.session_state["vision_batch_metadata"] = {}
+    st.session_state["traffic_review_approved"] = False
+    st.session_state["traffic_counts_corrected"] = {}
+    st.session_state["traffic_review_source_fingerprint"] = None
 
 
-def _congestion_source_id(source_mode: str, fallback: str) -> str:
-    if source_mode != VIDEO_MODE:
-        return fallback
-    relative_path = st.session_state.get(
-        SELECTED_VIDEO_PATH_KEY, DEMO_VIDEO_RELATIVE
+def _cleanup_uploaded_video_session(*, finalized: bool = False) -> None:
+    handle = st.session_state.get(UPLOADED_VIDEO_HANDLE_KEY)
+    if isinstance(handle, UploadedVideoHandle):
+        cleanup_uploaded_video(handle)
+    st.session_state[UPLOADED_VIDEO_HANDLE_KEY] = None
+    if finalized:
+        st.session_state[UPLOADED_VIDEO_CLEANUP_TOKEN_KEY] = "finalized"
+        return
+    st.session_state[UPLOADED_VIDEO_HASH_KEY] = None
+    st.session_state[UPLOADED_VIDEO_FILE_ID_KEY] = None
+    st.session_state[UPLOADED_VIDEO_ERROR_KEY] = ""
+    st.session_state[UPLOADED_VIDEO_CLEANUP_TOKEN_KEY] = None
+
+
+def _apply_video_selection(entry: LocalVideo) -> None:
+    """Cierra el lote anterior y conserva la nueva selección sin iniciarla."""
+    _clear_real_source_state()
+    _cleanup_uploaded_video_session()
+    st.session_state[SELECTED_VIDEO_PATH_KEY] = entry.relative_path
+    st.session_state[SELECTED_VIDEO_DURATION_KEY] = entry.duration_seconds
+
+
+def _selected_video_input() -> tuple[Path, str]:
+    video_source_mode = st.session_state.get(
+        VIDEO_SOURCE_MODE_KEY, LOCAL_VIDEO_SOURCE
     )
-    return stable_video_source_id(str(relative_path))
+    if video_source_mode == UPLOAD_VIDEO_SOURCE:
+        handle = st.session_state.get(UPLOADED_VIDEO_HANDLE_KEY)
+        if not isinstance(handle, UploadedVideoHandle) or not handle.is_available:
+            raise UploadedVideoError(
+                "El video cargado ya no está disponible; vuelve a seleccionarlo."
+            )
+        return handle.temporary_path, handle.source_id
+
+    selected_relative = str(
+        st.session_state.get(SELECTED_VIDEO_PATH_KEY, DEMO_VIDEO_RELATIVE)
+    )
+    selected_path = resolve_video_path(
+        PROJECT_ROOT,
+        selected_relative,
+        built_in_video=DEMO_VIDEO_RELATIVE,
+    )
+    return selected_path, stable_video_source_id(selected_relative)
 
 
 def _pipeline_factory(source):
@@ -207,20 +269,11 @@ def _pipeline_factory(source):
 
 
 def _start_real_analysis(source_mode: str, camera_index: int) -> None:
-    _close_real_controller()
+    _clear_real_source_state()
     prepare_session_for_real_analysis(st.session_state)
     try:
         if source_mode == VIDEO_MODE:
-            selected_relative = str(
-                st.session_state.get(
-                    SELECTED_VIDEO_PATH_KEY, DEMO_VIDEO_RELATIVE
-                )
-            )
-            selected_path = resolve_video_path(
-                PROJECT_ROOT,
-                selected_relative,
-                built_in_video=DEMO_VIDEO_RELATIVE,
-            )
+            selected_path, source_id = _selected_video_input()
             source = VideoFileSource(selected_path)
         else:
             source = CameraSource(camera_index)
@@ -233,9 +286,11 @@ def _start_real_analysis(source_mode: str, camera_index: int) -> None:
         st.session_state["traffic_analysis_batch_events"] = []
         st.session_state["traffic_analysis_error"] = ""
         st.session_state["traffic_analysis_source_metadata"] = metadata
+        active_source_id = source_id if source_mode == VIDEO_MODE else metadata.source_id
+        st.session_state["traffic_analysis_active_source_id"] = active_source_id
         start_congestion_session(
             st.session_state,
-            _congestion_source_id(source_mode, metadata.source_id),
+            active_source_id,
             monitoring_point_id=state.source.point_name,
         )
     except Exception as exc:
@@ -270,6 +325,8 @@ def _finish_for_review(controller: TrafficAnalysisController) -> None:
     st.session_state["traffic_review_source_fingerprint"] = f"real:{source_name}:{now}"
     st.session_state["traffic_analysis_batch_events"] = list(events)
     st.session_state["traffic_analysis_running"] = False
+    if st.session_state.get(VIDEO_SOURCE_MODE_KEY) == UPLOAD_VIDEO_SOURCE:
+        _cleanup_uploaded_video_session(finalized=True)
 
 
 state = _load_state()
@@ -288,7 +345,15 @@ st.session_state.setdefault("traffic_analysis_current_result", None)
 st.session_state.setdefault("traffic_analysis_batch_events", [])
 st.session_state.setdefault("traffic_analysis_error", "")
 st.session_state.setdefault("traffic_analysis_source_metadata", None)
+st.session_state.setdefault("traffic_analysis_active_source_id", None)
 st.session_state.setdefault("traffic_analysis_source_type", STATIC_MODE)
+st.session_state.setdefault(VIDEO_SOURCE_MODE_KEY, LOCAL_VIDEO_SOURCE)
+st.session_state.setdefault(VIDEO_SOURCE_ACTIVE_MODE_KEY, LOCAL_VIDEO_SOURCE)
+st.session_state.setdefault(UPLOADED_VIDEO_HANDLE_KEY, None)
+st.session_state.setdefault(UPLOADED_VIDEO_HASH_KEY, None)
+st.session_state.setdefault(UPLOADED_VIDEO_FILE_ID_KEY, None)
+st.session_state.setdefault(UPLOADED_VIDEO_ERROR_KEY, "")
+st.session_state.setdefault(UPLOADED_VIDEO_CLEANUP_TOKEN_KEY, None)
 
 video_catalog = _load_video_catalog()
 if not video_catalog:
@@ -351,8 +416,9 @@ mode = mode or STATIC_MODE
 previous_mode = st.session_state.get("traffic_analysis_active_mode", STATIC_MODE)
 if mode != previous_mode:
     reset_demo_playback(st.session_state, last_update=time.monotonic())
-    _close_real_controller()
-    st.session_state["traffic_analysis_error"] = ""
+    _clear_real_source_state()
+    if previous_mode == VIDEO_MODE:
+        _cleanup_uploaded_video_session()
 st.session_state["traffic_analysis_active_mode"] = mode
 
 
@@ -614,6 +680,116 @@ def _render_monitoring_dashboard() -> None:
                 )
 
 
+def _process_uploaded_file(uploaded_file) -> UploadedVideoHandle | None:
+    previous = st.session_state.get(UPLOADED_VIDEO_HANDLE_KEY)
+    previous = previous if isinstance(previous, UploadedVideoHandle) else None
+    if uploaded_file is None:
+        if previous is not None or st.session_state.get(UPLOADED_VIDEO_HASH_KEY):
+            _clear_real_source_state()
+            _cleanup_uploaded_video_session()
+        return None
+
+    file_id = str(getattr(uploaded_file, "file_id", "") or "")
+    try:
+        digest = uploaded_video_digest(uploaded_file)
+    except (OSError, UploadedVideoError) as exc:
+        _clear_real_source_state()
+        _cleanup_uploaded_video_session()
+        st.session_state[UPLOADED_VIDEO_ERROR_KEY] = str(exc)
+        return None
+
+    current_hash = st.session_state.get(UPLOADED_VIDEO_HASH_KEY)
+    current_file_id = st.session_state.get(UPLOADED_VIDEO_FILE_ID_KEY)
+    cleanup_token = st.session_state.get(UPLOADED_VIDEO_CLEANUP_TOKEN_KEY)
+    if digest == current_hash and previous is not None and previous.is_available:
+        return previous
+    if digest == current_hash and previous is not None and not previous.is_available:
+        _clear_real_source_state()
+        cleanup_uploaded_video(previous)
+        st.session_state[UPLOADED_VIDEO_HANDLE_KEY] = None
+        st.session_state[UPLOADED_VIDEO_ERROR_KEY] = (
+            "El archivo temporal ya no está disponible; vuelve a cargar el video."
+        )
+        st.session_state[UPLOADED_VIDEO_CLEANUP_TOKEN_KEY] = "invalid"
+        return None
+    if (
+        digest == current_hash
+        and file_id == current_file_id
+        and cleanup_token in {"finalized", "invalid"}
+    ):
+        return None
+
+    _clear_real_source_state()
+    try:
+        handle = store_uploaded_video(uploaded_file, previous=previous)
+    except (OSError, UploadedVideoError) as exc:
+        st.session_state[UPLOADED_VIDEO_HANDLE_KEY] = None
+        st.session_state[UPLOADED_VIDEO_HASH_KEY] = digest
+        st.session_state[UPLOADED_VIDEO_FILE_ID_KEY] = file_id
+        st.session_state[UPLOADED_VIDEO_ERROR_KEY] = str(exc)
+        st.session_state[UPLOADED_VIDEO_CLEANUP_TOKEN_KEY] = "invalid"
+        return None
+
+    st.session_state[UPLOADED_VIDEO_HANDLE_KEY] = handle
+    st.session_state[UPLOADED_VIDEO_HASH_KEY] = handle.sha256
+    st.session_state[UPLOADED_VIDEO_FILE_ID_KEY] = file_id
+    st.session_state[UPLOADED_VIDEO_ERROR_KEY] = ""
+    st.session_state[UPLOADED_VIDEO_CLEANUP_TOKEN_KEY] = handle.cleanup_token
+    return handle
+
+
+def _render_uploaded_video_selector() -> None:
+    uploaded_file = st.file_uploader(
+        "Cargar video de análisis",
+        type=sorted(extension.lstrip(".") for extension in ALLOWED_UPLOAD_EXTENSIONS),
+        accept_multiple_files=False,
+        key=UPLOADED_VIDEO_WIDGET_KEY,
+        max_upload_size=MAX_UPLOAD_SIZE_MIB,
+        help="El archivo se valida y se conserva únicamente en un temporal de sesión.",
+    )
+    st.caption(
+        "El video se procesa localmente durante esta sesión y no se incorpora al repositorio."
+    )
+    st.warning(
+        "Los videos pueden contener matrículas, personas u otros datos sensibles. "
+        "Usa únicamente material autorizado.",
+        icon=":material/privacy_tip:",
+    )
+    handle = _process_uploaded_file(uploaded_file)
+    error = st.session_state.get(UPLOADED_VIDEO_ERROR_KEY, "")
+    if error:
+        st.error(str(error), icon=":material/video_file:")
+        return
+    if handle is None:
+        if st.session_state.get(UPLOADED_VIDEO_CLEANUP_TOKEN_KEY) == "finalized":
+            st.info(
+                "El análisis finalizó y el archivo temporal fue eliminado. "
+                "Quita y vuelve a cargar el archivo para analizarlo otra vez."
+            )
+        else:
+            st.info("Selecciona un video autorizado para habilitar el análisis.")
+        return
+
+    st.caption(
+        f"Archivo: `{handle.original_name}` · "
+        f"Tamaño: {handle.size_bytes / 1024 / 1024:.2f} MiB · "
+        f"Formato: {handle.extension.lstrip('.').upper()} · "
+        f"Duración: {_duration_text(handle.duration_seconds)}"
+    )
+    if handle.duration_seconds < 10.0:
+        st.warning(
+            "Este video dura menos de 10 segundos y no permite completar "
+            "el calentamiento de la estimación de congestión.",
+            icon=":material/timer_off:",
+        )
+    else:
+        st.info(
+            "El video supera el calentamiento de 10 segundos y permite observar "
+            "la transición desde Datos insuficientes.",
+            icon=":material/timer:",
+        )
+
+
 def _render_real_analysis(source_mode: str) -> None:
     st.markdown(
         render_status_chip(
@@ -623,52 +799,77 @@ def _render_real_analysis(source_mode: str) -> None:
         unsafe_allow_html=True,
     )
     camera_index = 0
+    analysis_input_ready = True
     if source_mode == VIDEO_MODE:
-        selected_relative = st.selectbox(
-            "Seleccionar video de análisis",
-            [item.relative_path for item in video_catalog],
-            key=SELECTED_VIDEO_KEY,
-            format_func=lambda value: _video_option_label(value, video_catalog),
-            help=(
-                "El catálogo solo incluye el video demostrativo incorporado y "
-                "archivos validados dentro de data/videos."
-            ),
+        video_source_mode = st.segmented_control(
+            "Origen del video pregrabado",
+            [LOCAL_VIDEO_SOURCE, UPLOAD_VIDEO_SOURCE],
+            key=VIDEO_SOURCE_MODE_KEY,
+            selection_mode="single",
         )
-        selected_entry = catalog_by_path[selected_relative]
-        if selected_relative != st.session_state.get(SELECTED_VIDEO_PATH_KEY):
-            _apply_video_selection(selected_entry)
-        st.caption(
-            f"Archivo seleccionado: `{selected_entry.relative_path}` · "
-            f"{_duration_text(selected_entry.duration_seconds)}"
+        video_source_mode = video_source_mode or LOCAL_VIDEO_SOURCE
+        previous_video_source_mode = st.session_state.get(
+            VIDEO_SOURCE_ACTIVE_MODE_KEY, LOCAL_VIDEO_SOURCE
         )
-        if (
-            selected_entry.duration_seconds is not None
-            and selected_entry.duration_seconds < 10.0
-        ):
-            st.warning(
-                "Este video dura menos de 10 segundos y no permite completar "
-                "el calentamiento de la estimación de congestión.",
-                icon=":material/timer_off:",
+        if video_source_mode != previous_video_source_mode:
+            _clear_real_source_state()
+            _cleanup_uploaded_video_session()
+        st.session_state[VIDEO_SOURCE_ACTIVE_MODE_KEY] = video_source_mode
+
+        if video_source_mode == LOCAL_VIDEO_SOURCE:
+            selected_relative = st.selectbox(
+                "Seleccionar video de análisis",
+                [item.relative_path for item in video_catalog],
+                key=SELECTED_VIDEO_KEY,
+                format_func=lambda value: _video_option_label(value, video_catalog),
+                help=(
+                    "El catálogo solo incluye el video demostrativo incorporado y "
+                    "archivos validados dentro de data/videos."
+                ),
             )
-        elif selected_entry.duration_seconds is not None:
-            st.info(
-                "Este video supera el calentamiento de 10 segundos y permite "
-                "validar visualmente la transición desde Datos insuficientes.",
-                icon=":material/timer:",
-            )
-        try:
-            selected_path = resolve_video_path(
-                PROJECT_ROOT,
-                selected_relative,
-                built_in_video=DEMO_VIDEO_RELATIVE,
-            )
-            selected_info = _inspect_video(str(selected_path))
+            selected_entry = catalog_by_path[selected_relative]
+            if selected_relative != st.session_state.get(SELECTED_VIDEO_PATH_KEY):
+                _apply_video_selection(selected_entry)
             st.caption(
-                f"{selected_info.resolution} · {selected_info.fps:.1f} FPS · "
-                f"{selected_info.total_frames} fotogramas · {_format_clock(selected_info.duration_seconds)}"
+                f"Archivo seleccionado: `{selected_entry.relative_path}` · "
+                f"{_duration_text(selected_entry.duration_seconds)}"
             )
-        except (FileNotFoundError, ValueError) as exc:
-            st.error(str(exc), icon=":material/video_file:")
+            if (
+                selected_entry.duration_seconds is not None
+                and selected_entry.duration_seconds < 10.0
+            ):
+                st.warning(
+                    "Este video dura menos de 10 segundos y no permite completar "
+                    "el calentamiento de la estimación de congestión.",
+                    icon=":material/timer_off:",
+                )
+            elif selected_entry.duration_seconds is not None:
+                st.info(
+                    "Este video supera el calentamiento de 10 segundos y permite "
+                    "validar visualmente la transición desde Datos insuficientes.",
+                    icon=":material/timer:",
+                )
+            try:
+                selected_path = resolve_video_path(
+                    PROJECT_ROOT,
+                    selected_relative,
+                    built_in_video=DEMO_VIDEO_RELATIVE,
+                )
+                selected_info = _inspect_video(str(selected_path))
+                st.caption(
+                    f"{selected_info.resolution} · {selected_info.fps:.1f} FPS · "
+                    f"{selected_info.total_frames} fotogramas · "
+                    f"{_format_clock(selected_info.duration_seconds)}"
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                st.error(str(exc), icon=":material/video_file:")
+        else:
+            _render_uploaded_video_selector()
+            uploaded_handle = st.session_state.get(UPLOADED_VIDEO_HANDLE_KEY)
+            analysis_input_ready = (
+                isinstance(uploaded_handle, UploadedVideoHandle)
+                and uploaded_handle.is_available
+            )
     else:
         camera_index = st.selectbox(
             "Índice de cámara local", [0, 1], key="traffic_analysis_camera_index"
@@ -688,7 +889,7 @@ def _render_real_analysis(source_mode: str) -> None:
             start_label,
             icon=":material/play_arrow:",
             type="primary",
-            disabled=controller is not None,
+            disabled=controller is not None or not analysis_input_ready,
         ):
             with st.spinner("Inicializando YOLOv8 y ByteTrack…"):
                 _start_real_analysis(source_mode, int(camera_index))
@@ -719,9 +920,12 @@ def _render_real_analysis(source_mode: str) -> None:
             key="real_reset",
         ):
             metadata = controller.reset()
+            active_source_id = st.session_state.get(
+                "traffic_analysis_active_source_id", metadata.source_id
+            )
             reset_congestion_session(
                 st.session_state,
-                _congestion_source_id(source_mode, metadata.source_id),
+                str(active_source_id or metadata.source_id),
             )
             st.session_state["traffic_analysis_source_metadata"] = metadata
             st.session_state["traffic_analysis_current_result"] = None
@@ -740,6 +944,12 @@ def _render_real_analysis(source_mode: str) -> None:
             controller.finish()
             finish_congestion_session(st.session_state)
             st.session_state["traffic_analysis_running"] = False
+            if (
+                source_mode == VIDEO_MODE
+                and st.session_state.get(VIDEO_SOURCE_MODE_KEY)
+                == UPLOAD_VIDEO_SOURCE
+            ):
+                _cleanup_uploaded_video_session(finalized=True)
             st.rerun()
 
     if st.session_state["traffic_analysis_error"]:

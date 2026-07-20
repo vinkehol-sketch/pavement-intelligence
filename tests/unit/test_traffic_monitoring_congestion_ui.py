@@ -29,14 +29,18 @@ from pavement_intelligence.ui.utils.congestion_session import (
     resume_congestion_session,
     start_congestion_session,
 )
+from pavement_intelligence.ui.utils.uploaded_video import store_uploaded_video
 from pavement_intelligence.vision.analysis import AnalysisState, FrameAnalysisResult
 from pavement_intelligence.vision.capture import SourceInfo
 
 
 ROOT = Path(__file__).resolve().parents[2]
 MONITORING_PAGE = ROOT / "src/pavement_intelligence/ui/pages/traffic_monitoring.py"
+APP_ENTRYPOINT = ROOT / "src/pavement_intelligence/ui/app.py"
 DEMO_VIDEO_RELATIVE = "data/samples/ui/assets/traffic_monitoring_demo.mp4"
 COMPLEX_VIDEO_RELATIVE = "data/videos/samples/complex_traffic.mp4"
+DEMO_VIDEO_PATH = ROOT / DEMO_VIDEO_RELATIVE
+COMPLEX_VIDEO_PATH = ROOT / COMPLEX_VIDEO_RELATIVE
 
 
 @dataclass(frozen=True)
@@ -305,6 +309,26 @@ def video_selection_app():
     return app
 
 
+def uploaded_video_app():
+    app = video_selection_app()
+    source_control = next(
+        item
+        for item in app.segmented_control
+        if item.label == "Origen del video pregrabado"
+    )
+    source_control.set_value("Cargar video").run()
+    assert not app.exception
+    return app
+
+
+def upload_demo_video(app, *, name="session-video.mp4"):
+    app.file_uploader[0].set_value(
+        (name, DEMO_VIDEO_PATH.read_bytes(), "video/mp4")
+    ).run()
+    assert not app.exception
+    return app.session_state["traffic_uploaded_video_handle"]
+
+
 def test_video_selector_lists_controlled_videos_and_preserves_demo_default():
     app = video_selection_app()
     selector = app.selectbox[0]
@@ -425,6 +449,232 @@ def test_video_change_does_not_approve_review_or_transfer_tpda():
     app.selectbox[0].set_value(COMPLEX_VIDEO_RELATIVE).run()
     assert app.session_state["traffic_review_approved"] is False
     assert app.session_state["tpda_input_from_review"] is sentinel
+
+
+def test_upload_option_and_uploader_only_appear_in_uploaded_video_mode():
+    app = video_selection_app()
+    assert any(
+        item.label == "Origen del video pregrabado" for item in app.segmented_control
+    )
+    assert not app.file_uploader
+    app = uploaded_video_app()
+    assert len(app.file_uploader) == 1
+    assert app.file_uploader[0].label == "Cargar video de análisis"
+    assert not app.file_uploader[0].accept_multiple_files
+    app.segmented_control[0].set_value("Cámara en vivo").run()
+    assert not app.file_uploader
+
+
+def test_uploaded_video_shows_metadata_privacy_and_does_not_auto_start():
+    app = uploaded_video_app()
+    handle = upload_demo_video(app, name="authorized.mp4")
+    try:
+        captions = [item.value for item in app.caption]
+        assert any("authorized.mp4" in value and "1.54 MiB" in value for value in captions)
+        assert any("no se incorpora al repositorio" in value for value in captions)
+        assert any("datos sensibles" in item.value for item in app.warning)
+        assert app.session_state["traffic_analysis_controller"] is None
+        assert app.session_state["traffic_analysis_running"] is False
+        start = next(button for button in app.button if button.label == "Iniciar análisis")
+        assert not start.disabled
+        assert handle.duration_seconds == 8.0
+        assert handle.temporary_path.is_file()
+    finally:
+        next(
+            item
+            for item in app.segmented_control
+            if item.label == "Origen del video pregrabado"
+        ).set_value("Video local del proyecto").run()
+
+
+def test_same_uploaded_file_reuses_temporary_handle_across_reruns():
+    app = uploaded_video_app()
+    first = upload_demo_video(app)
+    first_path = first.temporary_path
+    app.run()
+    second = app.session_state["traffic_uploaded_video_handle"]
+    assert second is first
+    assert second.temporary_path == first_path
+    assert first_path.is_file()
+    next(
+        item
+        for item in app.segmented_control
+        if item.label == "Origen del video pregrabado"
+    ).set_value("Video local del proyecto").run()
+    assert not first_path.exists()
+
+
+def test_replacing_upload_removes_previous_temporary_file():
+    app = uploaded_video_app()
+    previous = upload_demo_video(app, name="first.mp4")
+    previous_path = previous.temporary_path
+    app.file_uploader[0].set_value(
+        ("replacement.mp4", COMPLEX_VIDEO_PATH.read_bytes(), "video/mp4")
+    ).run()
+    replacement = app.session_state["traffic_uploaded_video_handle"]
+    assert not app.exception
+    assert not previous_path.exists()
+    assert replacement.temporary_path.is_file()
+    assert replacement.sha256 != previous.sha256
+    next(
+        item
+        for item in app.segmented_control
+        if item.label == "Origen del video pregrabado"
+    ).set_value("Video local del proyecto").run()
+
+
+@pytest.mark.parametrize("target_mode", ("Imagen demostrativa", "Cámara en vivo"))
+def test_leaving_video_mode_cleans_uploaded_temporary(target_mode):
+    app = uploaded_video_app()
+    handle = upload_demo_video(app)
+    temporary_path = handle.temporary_path
+    app.segmented_control[0].set_value(target_mode).run()
+    assert not app.exception
+    assert not temporary_path.exists()
+    assert app.session_state["traffic_uploaded_video_handle"] is None
+    assert app.session_state[COORDINATOR_KEY] is None
+
+
+def test_corrupt_upload_is_controlled_and_never_starts_analysis():
+    app = uploaded_video_app()
+    app.file_uploader[0].set_value(
+        ("corrupt.mp4", b"not-a-video", "video/mp4")
+    ).run()
+    assert not app.exception
+    assert app.session_state["traffic_uploaded_video_handle"] is None
+    assert app.session_state["traffic_analysis_controller"] is None
+    assert any("OpenCV no pudo abrir" in item.value for item in app.error)
+    start = next(button for button in app.button if button.label == "Iniciar análisis")
+    assert start.disabled
+
+
+def test_missing_temporary_file_is_controlled_before_start():
+    app = uploaded_video_app()
+    handle = upload_demo_video(app)
+    handle.temporary_path.unlink()
+    app.run()
+    assert not app.exception
+    assert app.session_state["traffic_uploaded_video_handle"] is None
+    assert app.session_state["traffic_analysis_controller"] is None
+    assert any("temporal ya no está disponible" in item.value for item in app.error)
+    start = next(button for button in app.button if button.label == "Iniciar análisis")
+    assert start.disabled
+
+
+def test_uploaded_video_start_pause_reset_and_finish_are_clean(monkeypatch):
+    opened_paths = []
+
+    class UploadedSource:
+        def __init__(self, path):
+            self.path = Path(path)
+            opened_paths.append(self.path)
+
+        def close(self):
+            return None
+
+    class UploadedController:
+        events = ()
+
+        def __init__(self, source, pipeline_factory):
+            self.source = source
+            self.pipeline_factory = pipeline_factory
+            self.state = AnalysisState.IDLE
+            self.last_result = real_frame_result()
+
+        def metadata(self):
+            return SourceInfo(self.source.path.name, "video_file", 8, 100, 50, 64, 0)
+
+        def start(self):
+            self.state = AnalysisState.RUNNING
+            return self.metadata()
+
+        def process_next(self):
+            return self.last_result
+
+        def pause(self):
+            self.state = AnalysisState.PAUSED
+
+        def resume(self):
+            self.state = AnalysisState.RUNNING
+
+        def reset(self):
+            self.state = AnalysisState.RUNNING
+            return self.metadata()
+
+        def close(self):
+            self.state = AnalysisState.FINISHED
+
+        def finish(self):
+            self.close()
+            return ()
+
+    monkeypatch.setattr(
+        "pavement_intelligence.vision.capture.VideoFileSource", UploadedSource
+    )
+    monkeypatch.setattr(
+        "pavement_intelligence.vision.analysis.TrafficAnalysisController",
+        UploadedController,
+    )
+
+    app = uploaded_video_app()
+    handle = upload_demo_video(app)
+    temporary_path = handle.temporary_path
+    next(button for button in app.button if button.label == "Iniciar análisis").click().run()
+    assert not app.exception
+    assert opened_paths == [temporary_path]
+    assert app.session_state[SOURCE_ID_KEY].startswith("uploaded-video:")
+    assert app.session_state[SNAPSHOT_KEY].level is CongestionLevel.INSUFFICIENT_DATA
+
+    next(button for button in app.button if button.label == "Pausar").click().run()
+    assert app.session_state["traffic_analysis_paused"] is True
+    next(button for button in app.button if button.label == "Continuar").click().run()
+    assert app.session_state["traffic_analysis_running"] is True
+    next(button for button in app.button if button.label == "Reiniciar").click().run()
+    assert app.session_state[SNAPSHOT_KEY].sample_count == 1
+
+    next(button for button in app.button if button.label == "Finalizar análisis").click().run()
+    assert not app.exception
+    assert not temporary_path.exists()
+    assert app.session_state[SNAPSHOT_KEY].is_final
+    assert app.session_state["traffic_analysis_controller"].state is AnalysisState.FINISHED
+    assert app.session_state["traffic_review_approved"] is False
+
+
+def test_navigation_away_closes_controller_and_cleans_upload(tmp_path):
+    class Upload:
+        name = "session.mp4"
+        type = "video/mp4"
+        data = b"video"
+        size = len(data)
+
+        def getvalue(self):
+            return self.data
+
+    class Controller:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    handle = store_uploaded_video(
+        Upload(),
+        temporary_parent=tmp_path,
+        duration_reader=lambda _path: 12.0,
+    )
+    temporary_path = handle.temporary_path
+    controller = Controller()
+    app = AppTest.from_file(str(APP_ENTRYPOINT), default_timeout=30)
+    app.session_state["traffic_analysis_controller"] = controller
+    app.session_state["traffic_uploaded_video_handle"] = handle
+    app.session_state["traffic_uploaded_video_hash"] = handle.sha256
+    app.session_state["traffic_uploaded_video_cleanup_token"] = handle.cleanup_token
+    app.run()
+    assert not app.exception
+    assert controller.closed
+    assert not temporary_path.exists()
+    assert app.session_state["traffic_analysis_controller"] is None
+    assert app.session_state["traffic_uploaded_video_handle"] is None
+    assert app.session_state[COORDINATOR_KEY] is None
 
 
 def test_page_contains_no_congestion_engine_or_aggregator_calculation():

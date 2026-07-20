@@ -8,6 +8,14 @@ src_dir = Path(__file__).resolve().parent.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
+from pavement_intelligence.ui.utils.congestion_session import (  # noqa: E402
+    clear_congestion_session,
+)
+from pavement_intelligence.ui.utils.uploaded_video import (  # noqa: E402
+    UploadedVideoHandle,
+    cleanup_uploaded_video,
+)
+
 # Configuración de página de Streamlit
 st.set_page_config(page_title="Pavement Intelligence", layout="wide")
 
@@ -29,4 +37,24 @@ pages = [
 ]
 
 pg = st.navigation(pages)
+if pg.url_path != "traffic_monitoring":
+    controller = st.session_state.get("traffic_analysis_controller")
+    if controller is not None:
+        controller.close()
+    handle = st.session_state.get("traffic_uploaded_video_handle")
+    if isinstance(handle, UploadedVideoHandle):
+        cleanup_uploaded_video(handle)
+    st.session_state["traffic_analysis_controller"] = None
+    st.session_state["traffic_analysis_running"] = False
+    st.session_state["traffic_analysis_paused"] = False
+    st.session_state["traffic_analysis_current_result"] = None
+    st.session_state["traffic_analysis_batch_events"] = []
+    st.session_state["traffic_analysis_source_metadata"] = None
+    st.session_state["traffic_analysis_active_source_id"] = None
+    st.session_state["traffic_uploaded_video_handle"] = None
+    st.session_state["traffic_uploaded_video_hash"] = None
+    st.session_state["traffic_uploaded_video_file_id"] = None
+    st.session_state["traffic_uploaded_video_error"] = ""
+    st.session_state["traffic_uploaded_video_cleanup_token"] = None
+    clear_congestion_session(st.session_state)
 pg.run()
