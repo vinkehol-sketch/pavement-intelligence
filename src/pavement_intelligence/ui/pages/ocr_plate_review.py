@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 
 import pandas as pd
 import streamlit as st
@@ -12,10 +13,39 @@ from pavement_intelligence.domain.traffic.ocr_presentation import (
 from pavement_intelligence.ui.utils.demo_data import PROJECT_ROOT
 from pavement_intelligence.ui.utils.ocr_privacy import (
     confirm_correction, confirm_unchanged, export_reviewed_csv, initialize_ocr_session,
-    load_demo_plate_readings, mark_status, mask_plate, render_plate_crop, save_review,
+    load_demo_plate_readings, mark_status, render_plate_crop, save_review,
     select_reading, summarize_readings, toggle_plate_visibility,
 )
+from pavement_intelligence.ui.utils.plate_session import (
+    cleanup_plate_session,
+    correct_plate_reading,
+    initialize_plate_session,
+    mask_plate_text,
+    reject_plate_reading,
+    toggle_plate_reveal,
+)
 from pavement_intelligence.ui.utils.styles import load_dashboard_css, render_status_chip
+from pavement_intelligence.ui.utils.uploaded_video import (
+    ALLOWED_UPLOAD_EXTENSIONS,
+    MAX_UPLOAD_SIZE_MIB,
+    UploadedVideoError,
+    UploadedVideoHandle,
+    cleanup_uploaded_video,
+    store_uploaded_video,
+)
+from pavement_intelligence.ui.utils.video_catalog import (
+    discover_local_videos,
+    resolve_video_path,
+    stable_video_source_id,
+)
+from pavement_intelligence.vision.analysis.ocr_controller import (
+    NormalizedRoiExtractor,
+    PlateAnalysisConfig,
+    PlateAnalysisController,
+)
+from pavement_intelligence.vision.analysis.ocr_models import PlateAnalysisState
+from pavement_intelligence.vision.capture import CameraSource, VideoFileSource
+from pavement_intelligence.vision.plates.paddleocr_reader import PaddleOCRPlateReader
 
 st.set_page_config(page_title="Lecturas de placas", page_icon=":material/license:", layout="wide")
 load_dashboard_css()
@@ -25,6 +55,12 @@ REASONS = (
     "Seleccione un motivo...", "Carácter confundido por OCR", "Imagen obstruida / sucia",
     "Reflejo o iluminación deficiente", "Recorte incorrecto", "Lectura duplicada", "Otro",
 )
+SYNTHETIC_MODE = "Demostración sintética"
+REAL_MODE = "Análisis OCR real"
+LOCAL_SOURCE = "Video local"
+UPLOAD_SOURCE = "Cargar video"
+CAMERA_SOURCE = "Cámara"
+DEMO_VIDEO_RELATIVE = "data/samples/ui/assets/traffic_monitoring_demo.mp4"
 
 
 @st.cache_data(max_entries=1)
@@ -35,6 +71,356 @@ def _load_readings():
 def _protected_data_url(text: str) -> str:
     payload = base64.b64encode(render_plate_crop(text, protected=True)).decode("ascii")
     return f"data:image/png;base64,{payload}"
+
+
+def _paddleocr_available() -> bool:
+    try:
+        return importlib.util.find_spec("paddleocr") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _process_plate_upload(uploaded_file) -> UploadedVideoHandle | None:
+    previous = st.session_state.get("plate_session_uploaded_video")
+    previous = previous if isinstance(previous, UploadedVideoHandle) else None
+    if uploaded_file is None:
+        if previous is not None:
+            cleanup_plate_session(st.session_state)
+            initialize_plate_session(st.session_state)
+        return None
+    file_id = str(getattr(uploaded_file, "file_id", "") or "")
+    if (
+        previous is not None
+        and previous.is_available
+        and st.session_state.get("plate_session_uploaded_file_id") == file_id
+    ):
+        return previous
+    if (
+        st.session_state.get("plate_session_upload_status") == "finalized"
+        and st.session_state.get("plate_session_uploaded_file_id") == file_id
+    ):
+        return None
+    cleanup_plate_session(st.session_state)
+    initialize_plate_session(st.session_state)
+    try:
+        handle = store_uploaded_video(uploaded_file, previous=previous)
+    except (OSError, UploadedVideoError) as exc:
+        st.session_state["plate_session_error"] = str(exc)
+        st.session_state["plate_session_uploaded_file_id"] = file_id
+        st.session_state["plate_session_upload_status"] = "invalid"
+        return None
+    st.session_state["plate_session_uploaded_video"] = handle
+    st.session_state["plate_session_uploaded_file_id"] = file_id
+    st.session_state["plate_session_uploaded_hash"] = handle.sha256
+    st.session_state["plate_session_upload_status"] = "ready"
+    return handle
+
+
+def _plate_reader():
+    override = st.session_state.get("plate_session_reader_override")
+    if override is not None:
+        return override
+    if not _paddleocr_available():
+        raise RuntimeError(
+            "PaddleOCR no está instalado. El análisis real permanece opcional."
+        )
+    return PaddleOCRPlateReader(anonymize=False)
+
+
+def _start_real_ocr(source_kind: str, selected_relative: str, every_n: int) -> None:
+    try:
+        source_override = st.session_state.get("plate_session_source_override")
+        if source_override is not None:
+            source = source_override
+            source_id = source.source_id
+        elif source_kind == LOCAL_SOURCE:
+            path = resolve_video_path(
+                PROJECT_ROOT,
+                selected_relative,
+                built_in_video=DEMO_VIDEO_RELATIVE,
+            )
+            source = VideoFileSource(path)
+            source_id = stable_video_source_id(selected_relative)
+        elif source_kind == UPLOAD_SOURCE:
+            handle = st.session_state.get("plate_session_uploaded_video")
+            if not isinstance(handle, UploadedVideoHandle) or not handle.is_available:
+                raise UploadedVideoError(
+                    "El video cargado no está disponible; vuelve a seleccionarlo."
+                )
+            source = VideoFileSource(handle.temporary_path)
+            source_id = handle.source_id
+        else:
+            source = CameraSource(0)
+            source_id = source.source_id
+        controller = PlateAnalysisController(
+            source,
+            _plate_reader(),
+            NormalizedRoiExtractor(),
+            PlateAnalysisConfig(every_n_frames=every_n, source_id=source_id),
+        )
+        controller.start()
+        st.session_state["plate_session_controller"] = controller
+        st.session_state["plate_session_source_id"] = source_id
+        st.session_state["plate_session_batch_id"] = controller.plate_batch_id
+        st.session_state["plate_session_batch_readings"] = ()
+        st.session_state["plate_session_frame_result"] = None
+        st.session_state["plate_session_last_processed_frame"] = None
+        st.session_state["plate_session_error"] = ""
+    except Exception as exc:
+        st.session_state["plate_session_error"] = str(exc)
+
+
+def _sync_plate_controller(controller: PlateAnalysisController) -> None:
+    result = controller.process_next()
+    st.session_state["plate_session_frame_result"] = result
+    st.session_state["plate_session_batch_readings"] = controller.readings
+    if result is not None:
+        st.session_state["plate_session_last_processed_frame"] = result.frame_index
+    if controller.state is PlateAnalysisState.ERROR:
+        st.session_state["plate_session_error"] = controller.error
+
+
+def _render_real_ocr() -> None:
+    st.title("Lecturas de placas")
+    st.markdown(
+        render_status_chip("Experimental", "info")
+        + " "
+        + render_status_chip("Fuente OCR independiente", "neutral"),
+        unsafe_allow_html=True,
+    )
+    st.info(
+        "Las lecturas OCR son auxiliares y requieren revisión humana.",
+        icon=":material/privacy_tip:",
+    )
+    st.caption(
+        "Estrategia: ROI central configurable; no se utiliza un detector automático "
+        "de placas ni se transfieren resultados al aforo o TPDA."
+    )
+    source_kind = st.segmented_control(
+        "Fuente OCR",
+        [LOCAL_SOURCE, UPLOAD_SOURCE, CAMERA_SOURCE],
+        default=LOCAL_SOURCE,
+        key="plate_session_source_kind",
+    ) or LOCAL_SOURCE
+    previous_kind = st.session_state.get("plate_session_active_source_kind")
+    if previous_kind is not None and previous_kind != source_kind:
+        cleanup_plate_session(st.session_state)
+        initialize_plate_session(st.session_state)
+    st.session_state["plate_session_active_source_kind"] = source_kind
+
+    catalog = discover_local_videos(
+        PROJECT_ROOT, built_in_video=DEMO_VIDEO_RELATIVE
+    )
+    selected_relative = DEMO_VIDEO_RELATIVE
+    source_token = source_kind
+    input_ready = True
+    if source_kind == LOCAL_SOURCE:
+        paths = [item.relative_path for item in catalog]
+        selected_relative = st.selectbox(
+            "Video OCR local",
+            paths,
+            key="plate_session_local_video",
+            format_func=lambda path: next(
+                item.filename for item in catalog if item.relative_path == path
+            ),
+        )
+        source_token = f"local:{selected_relative}"
+    elif source_kind == UPLOAD_SOURCE:
+        uploaded = st.file_uploader(
+            "Cargar video OCR",
+            type=sorted(item.lstrip(".") for item in ALLOWED_UPLOAD_EXTENSIONS),
+            accept_multiple_files=False,
+            max_upload_size=MAX_UPLOAD_SIZE_MIB,
+            key="plate_session_upload_widget",
+        )
+        handle = _process_plate_upload(uploaded)
+        upload_hash = (
+            handle.sha256
+            if handle is not None
+            else st.session_state.get("plate_session_uploaded_hash")
+        )
+        source_token = f"upload:{upload_hash}" if upload_hash else "upload:none"
+        input_ready = handle is not None
+        if handle is not None:
+            st.caption(
+                f"{handle.original_name} · {handle.size_bytes / 1024 / 1024:.2f} MiB"
+            )
+    else:
+        st.warning(
+            "La cámara es opcional y solo se abre al iniciar; las pruebas no requieren "
+            "un dispositivo físico.",
+            icon=":material/videocam:",
+        )
+        source_token = "camera:0"
+
+    previous_token = st.session_state.get("plate_session_active_source_token")
+    if previous_token is not None and previous_token != source_token:
+        cleanup_plate_session(st.session_state)
+        initialize_plate_session(st.session_state)
+        if source_kind == UPLOAD_SOURCE and uploaded is not None:
+            handle = _process_plate_upload(uploaded)
+            input_ready = handle is not None
+    st.session_state["plate_session_active_source_token"] = source_token
+
+    every_n = st.slider(
+        "Evaluar OCR cada N frames",
+        min_value=1,
+        max_value=30,
+        value=5,
+        key="plate_session_every_n_frames",
+    )
+    backend = "disponible" if _paddleocr_available() else "no instalado"
+    st.caption(f"Backend PaddleOCR: {backend} · Placas ocultas por defecto")
+
+    controller = st.session_state.get("plate_session_controller")
+    state = controller.state if isinstance(controller, PlateAnalysisController) else PlateAnalysisState.IDLE
+    with st.container(horizontal=True):
+        if st.button(
+            "Iniciar OCR",
+            type="primary",
+            disabled=not input_ready or state is not PlateAnalysisState.IDLE,
+        ):
+            _start_real_ocr(source_kind, selected_relative, every_n)
+            st.rerun()
+        if st.button(
+            "Procesar siguiente frame",
+            disabled=state is not PlateAnalysisState.RUNNING,
+        ) and isinstance(controller, PlateAnalysisController):
+            _sync_plate_controller(controller)
+            st.rerun()
+        if st.button(
+            "Pausar", disabled=state is not PlateAnalysisState.RUNNING
+        ) and isinstance(controller, PlateAnalysisController):
+            controller.pause()
+            st.rerun()
+        if st.button(
+            "Continuar", disabled=state is not PlateAnalysisState.PAUSED
+        ) and isinstance(controller, PlateAnalysisController):
+            controller.resume()
+            st.rerun()
+        if st.button(
+            "Finalizar",
+            disabled=state not in {PlateAnalysisState.RUNNING, PlateAnalysisState.PAUSED},
+        ) and isinstance(controller, PlateAnalysisController):
+            batch = controller.finish()
+            st.session_state["plate_session_batch_readings"] = batch.readings
+            handle = st.session_state.get("plate_session_uploaded_video")
+            if isinstance(handle, UploadedVideoHandle):
+                cleanup_uploaded_video(handle)
+                st.session_state["plate_session_uploaded_video"] = None
+                st.session_state["plate_session_upload_status"] = "finalized"
+            st.rerun()
+        if st.button("Reiniciar", disabled=controller is None):
+            if isinstance(controller, PlateAnalysisController):
+                controller.reset()
+            st.session_state["plate_session_controller"] = None
+            st.session_state["plate_session_batch_id"] = None
+            st.session_state["plate_session_frame_result"] = None
+            st.session_state["plate_session_batch_readings"] = ()
+            st.session_state["plate_session_last_processed_frame"] = None
+            st.session_state["plate_session_error"] = ""
+            st.session_state["plate_session_reviews"] = {}
+            st.session_state["plate_session_reveal_audit"] = ()
+            st.rerun()
+
+    controller = st.session_state.get("plate_session_controller")
+    state = controller.state if isinstance(controller, PlateAnalysisController) else PlateAnalysisState.IDLE
+    st.write(f"Estado OCR: **{state.value}**")
+    error = st.session_state.get("plate_session_error", "")
+    if error:
+        st.error(str(error))
+
+    frame_result = st.session_state.get("plate_session_frame_result")
+    if frame_result is not None and frame_result.frame is not None:
+        frame_col, roi_col = st.columns(2)
+        frame_col.image(
+            frame_result.frame,
+            channels="BGR",
+            caption=f"Frame {frame_result.frame_index} · {frame_result.timestamp_seconds:.2f} s",
+        )
+        if frame_result.roi_bbox is not None:
+            x1, y1, x2, y2 = frame_result.roi_bbox
+            roi_col.image(
+                frame_result.frame[y1:y2, x1:x2],
+                channels="BGR",
+                caption="Región OCR seleccionada (ROI, no detector)",
+            )
+
+    readings = tuple(st.session_state.get("plate_session_batch_readings", ()))
+    reviews = dict(st.session_state.get("plate_session_reviews", {}))
+    if not readings:
+        st.info("Aún no hay lecturas OCR reales en este lote independiente.")
+        return
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Lectura": mask_plate_text(item.normalized_text),
+                    "Confianza": item.confidence,
+                    "Timestamp": item.timestamp_seconds,
+                    "Estado": reviews.get(item.reading_id, item).status.value,
+                    "Origen": item.origin.value,
+                }
+                for item in readings
+            ]
+        ),
+        hide_index=True,
+    )
+    by_id = {item.reading_id: item for item in readings}
+    selected_id = st.selectbox(
+        "Lectura OCR real",
+        list(by_id),
+        format_func=lambda value: mask_plate_text(by_id[value].normalized_text),
+        key="plate_session_selected_reading_id",
+    )
+    selected = by_id[selected_id]
+    reviewer = st.selectbox("Revisor OCR", REVIEWERS, key="plate_session_reviewer")
+    visible = st.session_state.get("plate_session_visible_reading_id") == selected_id
+    if st.button("Ocultar lectura" if visible else "Mostrar lectura"):
+        toggle_plate_reveal(st.session_state, selected_id, reviewer)
+        st.rerun()
+    visible = st.session_state.get("plate_session_visible_reading_id") == selected_id
+    st.text_input(
+        "Lectura detectada",
+        value=selected.raw_text if visible else mask_plate_text(selected.normalized_text),
+        disabled=True,
+        key=f"plate_session_display_{selected_id}",
+    )
+    correction = st.text_input(
+        "Corrección manual",
+        value="",
+        placeholder="Ingrese la lectura corregida",
+        key=f"plate_session_correction_{selected_id}",
+    )
+    review_left, review_right = st.columns(2)
+    if review_left.button("Guardar corrección OCR"):
+        try:
+            correct_plate_reading(
+                st.session_state, selected_id, correction, reviewer
+            )
+            st.success("Corrección OCR guardada para revisión; no afecta el aforo.")
+        except ValueError as exc:
+            st.error(str(exc))
+    if review_right.button("Rechazar lectura OCR"):
+        reject_plate_reading(st.session_state, selected_id, reviewer)
+        st.warning("Lectura OCR rechazada; no se inventó una sustitución.")
+
+
+initialize_plate_session(st.session_state)
+page_mode = st.segmented_control(
+    "Modo de lecturas de placas",
+    [SYNTHETIC_MODE, REAL_MODE],
+    default=SYNTHETIC_MODE,
+    key="plate_session_ui_mode",
+) or SYNTHETIC_MODE
+previous_page_mode = st.session_state.get("plate_session_active_ui_mode")
+if previous_page_mode == REAL_MODE and page_mode != REAL_MODE:
+    cleanup_plate_session(st.session_state)
+    initialize_plate_session(st.session_state)
+st.session_state["plate_session_active_ui_mode"] = page_mode
+if page_mode == REAL_MODE:
+    _render_real_ocr()
+    st.stop()
 
 
 readings = _load_readings()

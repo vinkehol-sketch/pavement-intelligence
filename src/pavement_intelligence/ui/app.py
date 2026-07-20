@@ -11,6 +11,9 @@ if str(src_dir) not in sys.path:
 from pavement_intelligence.ui.utils.congestion_session import (  # noqa: E402
     clear_congestion_session,
 )
+from pavement_intelligence.ui.utils.plate_session import (  # noqa: E402
+    cleanup_plate_session,
+)
 from pavement_intelligence.ui.utils.uploaded_video import (  # noqa: E402
     UploadedVideoHandle,
     cleanup_uploaded_video,
@@ -57,4 +60,6 @@ if pg.url_path != "traffic_monitoring":
     st.session_state["traffic_uploaded_video_error"] = ""
     st.session_state["traffic_uploaded_video_cleanup_token"] = None
     clear_congestion_session(st.session_state)
+if pg.url_path != "ocr_plate_review":
+    cleanup_plate_session(st.session_state)
 pg.run()
