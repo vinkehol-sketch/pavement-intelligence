@@ -1,0 +1,1 @@
+correrlo desde streamlit
