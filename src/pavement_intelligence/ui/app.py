@@ -12,7 +12,6 @@ from pavement_intelligence.ui.utils.congestion_session import (  # noqa: E402
     clear_congestion_session,
 )
 from pavement_intelligence.demo import (  # noqa: E402
-    DEMO_NOTICE,
     DemoSessionConflict,
     load_demo_session,
     reset_demo_session,
@@ -95,10 +94,9 @@ if error := st.session_state.pop("demo_load_error", None):
     st.sidebar.error(error)
 if demo_active:
     st.sidebar.caption(
-        f"Caso: {st.session_state.get('demo_case_id')} · "
+        f"Modo demo activo · {st.session_state.get('demo_case_id')} · "
         f"semilla {st.session_state.get('demo_seed')}"
     )
-    st.error(DEMO_NOTICE, icon=":material/science:")
     with st.expander("Trazabilidad del caso demostrativo", expanded=False):
         st.json(st.session_state.get("demo_case_summary", {}), expanded=True)
 pg.run()

@@ -141,6 +141,9 @@ def test_demo_loader_refuses_real_session_and_reset_is_complete() -> None:
     assert session == {"unrelated_preference": "keep"}
     assert all(key not in session for key in widget_keys)
 
+    load_demo_session(session)
+    assert session["demo_tpda_reviewer"] == DEMO_RESPONSIBLE_PARTIES.reviewer
+
 
 def test_demo_required_fields_are_complete_fictitious_and_centralized() -> None:
     case = build_demo_case()
@@ -149,12 +152,12 @@ def test_demo_required_fields_are_complete_fictitious_and_centralized() -> None:
     assert DEMO_PROJECT_METADATA.project_code == case.case_id
     assert DEMO_PROJECT_METADATA.data_origin == DEMO_DATA_ORIGIN
     assert DEMO_PROJECT_METADATA.is_demo is True
-    assert DEMO_RESPONSIBLE_PARTIES.reviewer == "Auditor Vial"
+    assert DEMO_RESPONSIBLE_PARTIES.reviewer == "Auditor Vial Demo"
     assert state["demo_project_metadata"]["project_name"]
     assert state["demo_report_metadata"]["disclaimer"].startswith("DATOS SINTÉTICOS")
     assert all(field.demo_value not in (None, "") for field in DEMO_REQUIRED_FIELDS)
-    widget_fields = [field for field in DEMO_REQUIRED_FIELDS if field.state_key in state]
-    assert all(state[field.state_key] not in (None, "") for field in widget_fields)
+    assert all(field.state_key in state for field in DEMO_REQUIRED_FIELDS)
+    assert all(state[field.state_key] not in (None, "") for field in DEMO_REQUIRED_FIELDS)
     tpda_contract = state["demo_tpda_authoritative_input"]
     assert tpda_contract.temporal_coverage.declared_hours == 2
     assert tpda_contract.reviewer == DEMO_RESPONSIBLE_PARTIES.reviewer

@@ -67,10 +67,10 @@ DEMO_PROJECT_METADATA = DemoProjectMetadata(
 DEMO_RESPONSIBLE_PARTIES = DemoResponsibleParties(
     study_lead="Ing. Demo Vial",
     traffic_operator="Operador Demo",
-    reviewer="Auditor Vial",
+    reviewer="Auditor Vial Demo",
     pavement_designer="Especialista Demo en Pavimentos",
     report_prepared_by="Equipo Pavement Intelligence",
-    report_reviewed_by="Auditor Vial",
+    report_reviewed_by="Auditor Vial Demo",
     report_approved_by="Aprobador Demo",
 )
 
@@ -105,6 +105,8 @@ def demo_widget_defaults() -> dict[str, Any]:
         "traffic_review_synthetic_ack": True,
         "traffic_review_totals_ack": True,
         "traffic_review_transfer_ack": True,
+        "demo_tpda_duration_hours": 2.0,
+        "demo_tpda_reviewer": DEMO_RESPONSIBLE_PARTIES.reviewer,
         "plate_session_reviewer": DEMO_RESPONSIBLE_PARTIES.reviewer,
         "ocr_reviewer": DEMO_RESPONSIBLE_PARTIES.reviewer,
         "weighing_source_label": "Biblioteca demostrativa",

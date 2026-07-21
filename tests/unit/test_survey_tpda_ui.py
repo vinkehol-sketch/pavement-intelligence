@@ -2,8 +2,8 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-from pavement_intelligence.traffic.tpda_workflow import MethodologicalStatus
-from pavement_intelligence.demo import build_demo_case
+from pavement_intelligence.demo import DEMO_RESPONSIBLE_PARTIES, build_demo_case
+from pavement_intelligence.traffic.tpda_workflow import MethodologicalStatus, result_is_stale
 
 
 PAGE = (
@@ -120,3 +120,45 @@ def test_demo_ui_preserves_two_hour_contract_and_shows_formula_and_transfer_warn
         "methodologically_fit_for_next_phase=false" in item.value
         for item in app.warning
     )
+
+
+def test_demo_ui_prefills_reviewer_and_recalculates_phase_1_with_trace() -> None:
+    case = build_demo_case()
+    app = AppTest.from_file(str(PAGE), default_timeout=60)
+    for key, value in case.session_payload.items():
+        app.session_state[key] = value
+
+    app = app.run()
+    reviewer = widget(app.text_input, "Responsable del cálculo")
+    assert reviewer.value == DEMO_RESPONSIBLE_PARTIES.reviewer
+
+    widget(app.button, "Calcular y evaluar Fase 1").click()
+    app = app.run()
+
+    assert not app.exception
+    assert not any("El revisor es obligatorio" in item.value for item in app.error)
+    assert not any("DESACTUALIZADO" in item.value for item in app.error)
+    workflow_input = app.session_state["tpda_phase1_input"]
+    result = app.session_state["tpda_phase1_result"]
+    assert workflow_input.reviewer == reviewer.value
+    assert result.reviewer == reviewer.value
+    assert not result_is_stale(result, workflow_input)
+
+
+def test_demo_ui_migrates_an_empty_legacy_reviewer_only_once() -> None:
+    case = build_demo_case()
+    app = AppTest.from_file(str(PAGE), default_timeout=60)
+    for key, value in case.session_payload.items():
+        app.session_state[key] = value
+    app.session_state["demo_tpda_reviewer"] = ""
+    app.session_state["demo_tpda_authoritative_input"] = case.session_payload[
+        "demo_tpda_authoritative_input"
+    ]
+
+    app = app.run()
+    reviewer = widget(app.text_input, "Responsable del cálculo")
+    assert reviewer.value == DEMO_RESPONSIBLE_PARTIES.reviewer
+
+    reviewer.set_value("Revisor Demo Editado")
+    app = app.run()
+    assert widget(app.text_input, "Responsable del cálculo").value == "Revisor Demo Editado"

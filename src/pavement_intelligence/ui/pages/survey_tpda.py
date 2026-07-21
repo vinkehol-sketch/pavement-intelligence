@@ -16,7 +16,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from pavement_intelligence.demo import build_demo_tpda_input
+from pavement_intelligence.demo import DEMO_RESPONSIBLE_PARTIES, build_demo_tpda_input
 from pavement_intelligence.traffic.tpda_workflow import (
     ExpansionMethod,
     FactorTrace,
@@ -39,6 +39,7 @@ from pavement_intelligence.utils.validators import (
     validate_growth_rate,
     validate_survey_duration,
 )
+from pavement_intelligence.ui.utils.widget_state import widget_default
 from pavement_intelligence.weighing.workflow import (
     build_weighing_input_from_tpda,
     store_weighing_transfer,
@@ -124,11 +125,13 @@ def render() -> None:
     demo_active = bool(st.session_state.get("demo_mode_active"))
     demo_contract: TPDAWorkflowInput | None = None
     if demo_active:
+        current_contract = build_demo_tpda_input()
         stored_contract = st.session_state.get("demo_tpda_authoritative_input")
         demo_contract = (
             stored_contract
             if isinstance(stored_contract, TPDAWorkflowInput)
-            else build_demo_tpda_input()
+            and stored_contract.reviewer == current_contract.reviewer
+            else current_contract
         )
         st.session_state["demo_tpda_authoritative_input"] = demo_contract
     sources = ["Introducción manual", "Importar CSV", "Eventos visuales en sesión"]
@@ -285,13 +288,14 @@ def render() -> None:
         "Duración declarada del aforo (horas)",
         min_value=0.1,
         max_value=168.0,
-        value=(
+        step=1.0,
+        **widget_default(
+            st.session_state,
+            "demo_tpda_duration_hours" if demo_contract is not None else "tpda_duration_hours",
             float(demo_contract.temporal_coverage.declared_hours)
             if demo_contract is not None
-            else 24.0
+            else 24.0,
         ),
-        step=1.0,
-        key="demo_tpda_duration_hours" if demo_contract is not None else "tpda_duration_hours",
     )
     duration_validation = validate_survey_duration(duration)
     for warning in duration_validation.warnings:
@@ -450,10 +454,16 @@ def render() -> None:
         key="demo_tpda_fdc" if demo_contract is not None else "tpda_fdc",
     )
 
+    reviewer_key = "demo_tpda_reviewer" if demo_contract is not None else "tpda_reviewer"
+    if demo_contract is not None:
+        migration_key = "demo_tpda_reviewer_prefill_v2_initialized"
+        if not st.session_state.get(migration_key):
+            if not str(st.session_state.get(reviewer_key, "")).strip():
+                st.session_state[reviewer_key] = DEMO_RESPONSIBLE_PARTIES.reviewer
+            st.session_state[migration_key] = True
     reviewer = st.text_input(
         "Responsable del cálculo",
-        value=reviewer_default,
-        key="demo_tpda_reviewer" if demo_contract is not None else "tpda_reviewer",
+        **widget_default(st.session_state, reviewer_key, reviewer_default),
     )
     synthetic_ack = False
     if is_synthetic:
