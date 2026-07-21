@@ -26,22 +26,25 @@ def render() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Aviso de datos simulados ──────────────────────────────────────────────
-    st.warning(
-        "⚠️ **AVISO IMPORTANTE:** Los datos sintéticos del caso demostrativo están "
-        "etiquetados explícitamente como **SIMULADO**. Los resultados son de carácter "
-        "educativo y **no reemplazan** un estudio de ingeniería vial formal. "
-        "Reemplace los datos de ejemplo con información real antes de usar para toma "
-        "de decisiones.",
-        icon="⚠️",
-    )
+    demo_active = bool(st.session_state.get("demo_mode_active"))
+    if demo_active:
+        st.error("DATOS SINTÉTICOS — SOLO DEMOSTRACIÓN", icon=":material/science:")
+        st.caption(
+            "Origen: synthetic_demo · is_demo: true · "
+            f"Caso: {st.session_state.get('demo_case_id')}"
+        )
+    else:
+        st.info(
+            "Use **Cargar caso demostrativo** en la barra lateral para poblar el flujo "
+            "completo sin mezclarlo con datos reales."
+        )
 
     st.markdown("---")
 
     # ── Estado del flujo del MVP ──────────────────────────────────────────────
     st.subheader("🔄 Estado de Progreso del Flujo MVP")
     
-    video_done = st.session_state.get("processing_done", False)
+    video_done = st.session_state.get("processing_done", False) or demo_active
     review_approved = st.session_state.get("traffic_review_approved", False)
     sent_to_tpda = st.session_state.get("tpda_input_from_review") is not None
     tpda_calculated = st.session_state.get("tpda_result") is not None
@@ -80,6 +83,26 @@ def render() -> None:
         st.markdown(f"<div style='background:#1e2130; padding:10px; border-radius:6px; border-top: 3px solid #f63366;'><strong>3. Traspaso a TPDA</strong><br>{transfer_status}</div>", unsafe_allow_html=True)
     with col_s4:
         st.markdown(f"<div style='background:#1e2130; padding:10px; border-radius:6px; border-top: 3px solid #f63366;'><strong>4. Diseño de Tránsito</strong><br>{tpda_status}</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    if demo_active:
+        summary = st.session_state.get("demo_case_summary", {})
+        st.subheader("Resumen calculado del corredor ficticio")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Cruces observados", summary.get("observed_crossings", 0))
+        m2.metric("Cruces aprobados", summary.get("approved_crossings", 0))
+        m3.metric("TPDA base", f"{summary.get('tpda_base', 0):,.0f} veh/día")
+        m4.metric("W18 de diseño", f"{summary.get('design_esal_w18', 0):,.0f}")
+        g1, g2, g3, g4 = st.columns(4)
+        g1.metric("CBR de diseño", f"{summary.get('design_cbr_percent', 0):.1f} %")
+        g2.metric("MR adoptado", f"{summary.get('adopted_mr_mpa', 0):.2f} MPa")
+        g3.metric("SN requerido", f"{summary.get('required_sn', 0):.3f}")
+        g4.metric("Reporte", summary.get("report_state", "—"))
+        st.caption(
+            "Los factores 24/2, 4,0 %, 20 años, FDD 0,52, FDC 1,00 y los "
+            "parámetros AASHTO están declarados en sus contratos de entrada."
+        )
 
     st.markdown("---")
 
@@ -149,14 +172,11 @@ def render() -> None:
 
     with col_b:
         st.info(
-            "### 🚀 Caso Demostrativo\n\n"
-            "El proyecto incluye un **caso demostrativo completo** para la "
-            "*Vía Secundaria Demostrativa — La Paz, Bolivia* con:\n\n"
-            "- **Conteo vehicular** de 24 horas (48 registros horarios) — **SIMULADO**\n"
-            "- **Datos de pesaje** de 50 vehículos pesados — **SIMULADO**\n"
-            "- **5 muestras de suelo** con CBR entre 3.5% y 7.2% — **SIMULADO**\n"
-            "- **Diseño AASHTO 93** para SN ≈ 3.84 — **CALCULADO**\n\n"
-            "Ubique los archivos en `data/samples/caso_demostrativo/`."
+            "### Caso demostrativo centralizado\n\n"
+            "El corredor ficticio tiene dos sentidos, categorías livianas y pesadas, "
+            "revisión manual, OCR aislado, expansión TPDA, pesaje sintético, ESAL, "
+            "CBR/MR, AASHTO 93 y expediente final. Los resultados se construyen con "
+            "los motores existentes y se limpian mediante **Reiniciar demostración**."
         )
 
     st.markdown("---")
@@ -198,7 +218,7 @@ def render() -> None:
         "🛣️ Pavement Intelligence v0.1.0-beta · "
         "Método: AASHTO 93 Flexible · "
         "Clasificación vehicular: ABC Bolivia · "
-        "Datos demostrativos etiquetados como SIMULADO"
+        "Datos demo etiquetados como synthetic_demo"
     )
 
 if __name__ == "__main__":

@@ -11,6 +11,12 @@ if str(src_dir) not in sys.path:
 from pavement_intelligence.ui.utils.congestion_session import (  # noqa: E402
     clear_congestion_session,
 )
+from pavement_intelligence.demo import (  # noqa: E402
+    DEMO_NOTICE,
+    DemoSessionConflict,
+    load_demo_session,
+    reset_demo_session,
+)
 from pavement_intelligence.ui.utils.plate_session import (  # noqa: E402
     cleanup_plate_session,
 )
@@ -62,4 +68,38 @@ if pg.url_path != "traffic_monitoring":
     clear_congestion_session(st.session_state)
 if pg.url_path != "ocr_plate_review":
     cleanup_plate_session(st.session_state)
+st.sidebar.markdown("### Modo demostración")
+demo_active = bool(st.session_state.get("demo_mode_active"))
+if st.sidebar.button(
+    "Cargar caso demostrativo",
+    type="primary",
+    disabled=demo_active,
+    width="stretch",
+):
+    try:
+        load_demo_session(st.session_state)
+    except DemoSessionConflict as exc:
+        st.session_state["demo_load_error"] = str(exc)
+    else:
+        st.session_state.pop("demo_load_error", None)
+        st.rerun()
+if st.sidebar.button(
+    "Reiniciar demostración",
+    disabled=not demo_active,
+    width="stretch",
+):
+    cleanup_plate_session(st.session_state)
+    reset_demo_session(st.session_state)
+    st.rerun()
+if error := st.session_state.pop("demo_load_error", None):
+    st.sidebar.error(error)
+if demo_active:
+    st.sidebar.caption(
+        f"Caso: {st.session_state.get('demo_case_id')} · "
+        f"semilla {st.session_state.get('demo_seed')}"
+    )
+    st.error(DEMO_NOTICE, icon=":material/science:")
+    with st.expander("Trazabilidad del caso demostrativo", expanded=False):
+        st.json(st.session_state.get("demo_case_summary", {}), expanded=True)
 pg.run()
+

@@ -25,12 +25,19 @@ def load_demo_dashboard() -> TrafficDashboardState:
     dashboard = _read_json("traffic_dashboard_demo.json")
     alert_payload = _read_json("traffic_alerts_demo.json")
     ocr_payload = _read_json("ocr_summary_demo.json")
-    if dashboard.get("data_origin") != "SYNTHETIC_UI_DEMO" or not dashboard.get("demo_mode"):
+    if dashboard.get("data_origin") != "synthetic_demo" or not dashboard.get("is_demo"):
         raise ValueError("El fixture debe estar identificado como demostrativo.")
-    if alert_payload.get("data_origin") != "SYNTHETIC_UI_DEMO" or ocr_payload.get("data_origin") != "SYNTHETIC_UI_DEMO":
+    if (
+        alert_payload.get("data_origin") != "synthetic_demo"
+        or ocr_payload.get("data_origin") != "synthetic_demo"
+    ):
         raise ValueError("Todos los fixtures auxiliares deben tener origen demostrativo.")
     alerts = alert_payload["alerts"]
-    ocr = {key: value for key, value in ocr_payload.items() if key != "data_origin"}
+    ocr = {
+        key: value
+        for key, value in ocr_payload.items()
+        if key not in {"data_origin", "is_demo"}
+    }
     metrics = TrafficMetricsPresentation(**dashboard["metrics"])
     return TrafficDashboardState(
         operational_state=DashboardOperationalState(dashboard["operational_state"]),

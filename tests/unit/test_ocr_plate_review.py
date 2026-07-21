@@ -29,17 +29,17 @@ def readings():
 
 def test_demo_data_loads_all_exclusive_statuses(readings):
     assert {item.status for item in readings} == set(PlateReviewStatus)
-    assert all(item.data_origin == "SYNTHETIC_UI_DEMO" for item in readings)
+    assert all(item.data_origin == "synthetic_demo" for item in readings)
 
 
-@pytest.mark.parametrize(("text", "expected"), [("ABC-492", "***-492"), ("GHK-4?2", "***-4?2"), ("", "***-???")])
+@pytest.mark.parametrize(("text", "expected"), [("DEMO-01", "***-?01"), ("FICT-?2", "***-??2"), ("", "***-???")])
 def test_plate_anonymization(text, expected):
     assert mask_plate(text) == expected
 
 
 def test_protected_crop_is_generated_and_differs_from_visible_crop():
-    visible = Image.open(io.BytesIO(render_plate_crop("ABC-492", protected=False)))
-    protected = Image.open(io.BytesIO(render_plate_crop("ABC-492", protected=True)))
+    visible = Image.open(io.BytesIO(render_plate_crop("DEMO-01", protected=False)))
+    protected = Image.open(io.BytesIO(render_plate_crop("DEMO-01", protected=True)))
     assert visible.size == protected.size
     assert ImageChops.difference(visible, protected).getbbox() is not None
 
@@ -81,9 +81,9 @@ def test_original_ocr_reading_is_immutable(readings):
 
 def test_correction_requires_reason_and_reviewer(readings):
     with pytest.raises(ValueError):
-        PlateCorrectionRequest(readings[1].reading_id, "GHK-492", "", "", "jperez")
+        PlateCorrectionRequest(readings[1].reading_id, "FICT-02", "", "", "jperez")
     with pytest.raises(ValueError):
-        PlateCorrectionRequest(readings[1].reading_id, "GHK-492", "OCR", "", "")
+        PlateCorrectionRequest(readings[1].reading_id, "FICT-02", "OCR", "", "")
 
 
 def test_empty_text_cannot_be_confirmed_valid(readings):
@@ -94,10 +94,10 @@ def test_empty_text_cannot_be_confirmed_valid(readings):
 
 def test_correction_preserves_original_and_sets_single_valid_status(readings):
     reading = readings[1]
-    request = PlateCorrectionRequest(reading.reading_id, "GHK-492", "Carácter confundido", "", "jperez")
+    request = PlateCorrectionRequest(reading.reading_id, "FICT-02", "Carácter confundido", "", "jperez")
     review = confirm_correction(reading, request)
-    assert review.original_text == "GHK-4?2"
-    assert review.corrected_text == "GHK-492"
+    assert review.original_text == "FICT-?2"
+    assert review.corrected_text == "FICT-02"
     assert review.status is PlateReviewStatus.VALID
 
 
@@ -131,7 +131,7 @@ def test_safe_export_contains_only_reviewed_synthetic_text_data(readings):
     payload = export_reviewed_csv(readings, {review.reading_id: review})
     rows = list(csv.DictReader(io.StringIO(payload.decode("utf-8-sig"))))
     assert len(rows) == 1
-    assert rows[0]["data_origin"] == "SYNTHETIC_UI_DEMO"
+    assert rows[0]["data_origin"] == "synthetic_demo"
     assert "image" not in " ".join(rows[0]).lower()
     assert readings[1].original_text not in payload.decode("utf-8-sig")
 

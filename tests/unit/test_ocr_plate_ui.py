@@ -75,7 +75,7 @@ def test_synthetic_mode_remains_default_and_separate():
     assert mode.value == "Demostración sintética"
     assert "Mostrar placa" in {item.label for item in app.button}
     assert "Iniciar" not in {item.label for item in app.button}
-    assert all(item.data_origin == "SYNTHETIC_UI_DEMO" for item in app.session_state["ocr_readings_raw"])
+    assert all(item.data_origin == "synthetic_demo" for item in app.session_state["ocr_readings_raw"])
 
 
 def test_real_mode_has_independent_sources_controls_and_warning():

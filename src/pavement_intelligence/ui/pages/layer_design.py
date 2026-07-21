@@ -328,7 +328,19 @@ if isinstance(result, LayerDesignResult):
             "Alternativas ordenadas por criterio demostrativo, no económico; no se selecciona una automáticamente."
         )
         st.dataframe(
-            pd.DataFrame([x.__dict__ for x in result.alternatives]), hide_index=True
+            pd.DataFrame(
+                [
+                    {
+                        **x.__dict__,
+                        "thicknesses_in": ", ".join(
+                            f"{layer}: {thickness:.1f} in"
+                            for layer, thickness in x.thicknesses_in
+                        ),
+                    }
+                    for x in result.alternatives
+                ]
+            ),
+            hide_index=True,
         )
         alternative_failures = []
         for index, alternative in enumerate(result.alternatives, 1):

@@ -21,8 +21,8 @@ def test_ocr_reveal_control_renders_only_selected_plate_and_audits():
     next(button for button in app.button if button.label == "Mostrar placa").click()
     app.run()
     assert not app.exception
-    assert app.session_state["ocr_visible_reading_id"] == "LPR-001"
-    assert [(item.reading_id, item.action) for item in app.session_state["ocr_reveal_audit"]] == [("LPR-001", "REVEAL")]
+    assert app.session_state["ocr_visible_reading_id"] == "DEMO-OCR-001"
+    assert [(item.reading_id, item.action) for item in app.session_state["ocr_reveal_audit"]] == [("DEMO-OCR-001", "REVEAL")]
     assert "Ocultar placa" in {button.label for button in app.button}
 
 

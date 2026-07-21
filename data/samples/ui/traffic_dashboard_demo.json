@@ -1,26 +1,28 @@
 {
-  "data_origin": "SYNTHETIC_UI_DEMO",
+  "data_origin": "synthetic_demo",
+  "is_demo": true,
   "demo_mode": true,
   "operational_state": "PROCESSING_ACTIVE",
   "frame_path": "validacion_vision/yolov8s_fotograma_229_anotado.jpg",
-  "source": {"source_type": "SIMULATED", "label": "Cámara simulada", "point_name": "Av. Central - Punto 04", "configured_direction": "Bidireccional", "fps": 29.97, "resolution": "1080p", "latency_ms": 42},
-  "metrics": {"current_flow_veh_min": 32, "average_speed_kmh": 21, "vehicles_in_scene": 14, "accumulated_total": 1556, "visual_occupancy_percent": 64},
+  "source": {"source_type": "SIMULATED", "label": "Video ficticio", "point_name": "Corredor Andino - Punto DEMO-01", "configured_direction": "Bidireccional", "fps": 15.0, "resolution": "720p", "latency_ms": 0},
+  "metrics": {"current_flow_veh_min": 1, "average_speed_kmh": 32, "vehicles_in_scene": 5, "accumulated_total": 120, "visual_occupancy_percent": 28},
   "congestion": {"level": "MODERATE", "label": "Congestión moderada", "detail": "Nivel operativo moderado"},
   "categories": [
-    {"category": "AUTO", "label": "Automóviles", "count": 845, "trend_percent": 5.2},
-    {"category": "MINIBUS", "label": "Minibuses", "count": 212, "trend_percent": -1.1},
-    {"category": "BUS", "label": "Buses", "count": 129, "trend_percent": 2.4},
-    {"category": "TRUCK", "label": "Camiones", "count": 84, "trend_percent": 0.5},
-    {"category": "MOTORCYCLE", "label": "Motocicletas", "count": 286, "trend_percent": 12.3}
+    {"category": "AUTO", "label": "Automóviles y duplicados", "count": 44, "trend_percent": 0.0},
+    {"category": "CAMIONETA", "label": "Camionetas", "count": 14, "trend_percent": 0.0},
+    {"category": "MINIBUS", "label": "Minibuses", "count": 12, "trend_percent": 0.0},
+    {"category": "BUS", "label": "Buses pendientes inicialmente", "count": 6, "trend_percent": 0.0},
+    {"category": "TRUCK", "label": "Camiones confirmables", "count": 26, "trend_percent": 0.0},
+    {"category": "MOTORCYCLE", "label": "Motocicletas", "count": 18, "trend_percent": 0.0}
   ],
   "directions": [
-    {"direction": "NORTH_SOUTH", "label": "Norte → Sur", "count": 812},
-    {"direction": "SOUTH_NORTH", "label": "Sur → Norte", "count": 744}
+    {"direction": "NORTH_SOUTH", "label": "Norte → Sur", "count": 60},
+    {"direction": "SOUTH_NORTH", "label": "Sur → Norte", "count": 60}
   ],
   "time_series": [
-    {"time": "13:30", "Norte → Sur": 12, "Sur → Norte": 10}, {"time": "13:40", "Norte → Sur": 15, "Sur → Norte": 12},
-    {"time": "13:50", "Norte → Sur": 18, "Sur → Norte": 14}, {"time": "14:00", "Norte → Sur": 17, "Sur → Norte": 16},
-    {"time": "14:10", "Norte → Sur": 20, "Sur → Norte": 15}, {"time": "14:20", "Norte → Sur": 18, "Sur → Norte": 14}
+    {"time": "14:00", "Norte → Sur": 10, "Sur → Norte": 10}, {"time": "14:20", "Norte → Sur": 10, "Sur → Norte": 10},
+    {"time": "14:40", "Norte → Sur": 10, "Sur → Norte": 10}, {"time": "15:00", "Norte → Sur": 10, "Sur → Norte": 10},
+    {"time": "15:20", "Norte → Sur": 10, "Sur → Norte": 10}, {"time": "15:40", "Norte → Sur": 10, "Sur → Norte": 10}
   ],
-  "review": {"status": "PENDING_REVIEW", "label": "Pendiente de revisión", "detail": "Lote demostrativo sin aprobación técnica"}
+  "review": {"status": "APPROVED", "label": "Aprobado solo para demostración", "detail": "14 eventos inicialmente pendientes fueron resueltos con trazabilidad sintética"}
 }

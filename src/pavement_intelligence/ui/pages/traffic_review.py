@@ -22,6 +22,7 @@ from pavement_intelligence.integration import (
     build_traffic_event_batch,
 )
 from pavement_intelligence.integration.traffic_event_adapter import REQUIRED_EVENT_FIELDS
+from pavement_intelligence.demo import build_demo_traffic_events
 from pavement_intelligence.utils.catalog_loader import get_vehicle_categories, load_yaml_catalog_cached
 
 _VEHICLE_CATALOG_PATH = Path(__file__).resolve().parents[2] / "config" / "vehicle_catalog.yaml"
@@ -43,21 +44,7 @@ CATEGORIA_MAP = {
     "DESCONOCIDO": "Requiere revisión"
 }
 
-# ── 15 Eventos Demostrativos Sintéticos ───────────────────────────────────────
-EVENTOS_DEMO = [
-    {"event_id": "evt_1712403982000_1", "track_id": 1, "original_class": "car", "category": "AUTO", "confidence": 0.9250, "frame_number": 120, "video_second": 5.0, "direction": 1, "centroid_x": 150.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_2", "track_id": 2, "original_class": "motorcycle", "category": "MOTO", "confidence": 0.8810, "frame_number": 240, "video_second": 10.0, "direction": -1, "centroid_x": 180.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_3", "track_id": 3, "original_class": "bus", "category": "BUS", "confidence": 0.9420, "frame_number": 360, "video_second": 15.0, "direction": 1, "centroid_x": 220.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_4", "track_id": 4, "original_class": "truck", "category": "CAMION", "confidence": 0.9100, "frame_number": 480, "video_second": 20.0, "direction": 1, "centroid_x": 310.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_5", "track_id": 5, "original_class": "car", "category": "AUTO", "confidence": 0.4500, "frame_number": 600, "video_second": 25.0, "direction": -1, "centroid_x": 140.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},  # Baja confianza
-    {"event_id": "evt_1712403982000_6", "track_id": 6, "original_class": "truck", "category": "CAMION", "confidence": 0.8900, "frame_number": 720, "video_second": 30.0, "direction": -1, "centroid_x": 305.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_7", "track_id": 7, "original_class": "car", "category": "AUTO", "confidence": 0.9320, "frame_number": 840, "video_second": 35.0, "direction": 1, "centroid_x": 155.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_8", "track_id": 8, "original_class": "car", "category": "AUTO", "confidence": 0.9510, "frame_number": 960, "video_second": 40.0, "direction": 1, "centroid_x": 162.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_9", "track_id": 9, "original_class": "bus", "category": "BUS", "confidence": 0.9150, "frame_number": 1080, "video_second": 45.0, "direction": -1, "centroid_x": 225.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"},
-    {"event_id": "evt_1712403982000_10", "track_id": 10, "original_class": "truck", "category": "CAMION", "confidence": 0.5200, "frame_number": 1200, "video_second": 50.0, "direction": 1, "centroid_x": 312.0, "centroid_y": 360.0, "source": "car-detection.mp4", "processing_date": "2026-07-17T16:00:00Z"}, # Camión + baja confianza
-]
-for _demo_event in EVENTOS_DEMO:
-    _demo_event["data_origin"] = "SINTETICO_DEMOSTRATIVO"
+EVENTOS_DEMO = build_demo_traffic_events()
 
 def initialize_reviewed_events(raw_events: list[Any]) -> list[dict[str, Any]]:
     """Adapta eventos crudos exclusivamente mediante el contrato oficial."""
@@ -433,7 +420,7 @@ def render() -> None:
         help="Los eventos con confianza menor a este umbral se marcarán para revisión obligatoria."
     )
     
-    min_just_len = st.sidebar.number_input(
+    st.sidebar.number_input(
         "Recomendación de longitud de justificación (caracteres):",
         min_value=0,
         max_value=100,

@@ -17,13 +17,13 @@ def test_demo_dashboard_builds_valid_presentation_models():
     state = load_demo_dashboard()
     assert state.demo_mode is True
     assert state.operational_state is DashboardOperationalState.PROCESSING_ACTIVE
-    assert state.review.status is ReviewStatus.PENDING_REVIEW
+    assert state.review.status is ReviewStatus.APPROVED
     assert validate_dashboard_state(state) == ()
 
 
 def test_demo_totals_match_categories_and_directions():
     state = load_demo_dashboard()
-    assert state.category_total == state.metrics.accumulated_total == 1556
+    assert state.category_total == state.metrics.accumulated_total == 120
     assert state.direction_total == state.metrics.accumulated_total
 
 

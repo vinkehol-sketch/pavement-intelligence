@@ -35,10 +35,14 @@ def mask_plate(text: str) -> str:
 
 
 def load_demo_plate_readings(path: Path | None = None) -> tuple[PlateReadingPresentation, ...]:
+    if path is None:
+        from pavement_intelligence.demo.case import build_demo_plate_readings
+
+        return build_demo_plate_readings()
     target = path or DEMO_DATA_DIR / "plate_readings_demo.json"
     with target.open(encoding="utf-8") as handle:
         payload = json.load(handle)
-    if payload.get("data_origin") != "SYNTHETIC_UI_DEMO":
+    if payload.get("data_origin") not in {"synthetic_demo", "SYNTHETIC_UI_DEMO"}:
         raise ValueError("El lote OCR debe ser sintético.")
     readings = []
     for item in payload["readings"]:
@@ -150,6 +154,7 @@ def export_reviewed_csv(readings: tuple[PlateReadingPresentation, ...], reviews:
             "original_text": review.original_text, "corrected_text": review.corrected_text or "",
             "status": review.status.value, "confidence": reading.confidence,
             "reason": review.reason, "reviewed_by": review.reviewed_by,
-            "reviewed_at": review.reviewed_at.isoformat(), "data_origin": "SYNTHETIC_UI_DEMO",
+            "reviewed_at": review.reviewed_at.isoformat(),
+            "data_origin": reading.data_origin,
         })
     return output.getvalue().encode("utf-8-sig")

@@ -6,6 +6,9 @@ from datetime import datetime
 from enum import Enum
 
 
+SYNTHETIC_DATA_ORIGINS = frozenset({"synthetic_demo", "SYNTHETIC_UI_DEMO"})
+
+
 class PlateReviewStatus(str, Enum):
     PENDING = "PENDING"
     VALID = "VALID"
@@ -31,7 +34,7 @@ class PlateReadingPresentation:
     data_origin: str
 
     def __post_init__(self) -> None:
-        if self.data_origin != "SYNTHETIC_UI_DEMO":
+        if self.data_origin not in SYNTHETIC_DATA_ORIGINS:
             raise ValueError("Las lecturas de esta fase deben ser sintéticas.")
         if not 0 <= self.confidence <= 1:
             raise ValueError("confidence debe estar entre 0 y 1.")
@@ -68,7 +71,7 @@ class PlateReviewRecord:
     notes: str
     reviewed_by: str
     reviewed_at: datetime
-    data_origin: str = "SYNTHETIC_UI_DEMO"
+    data_origin: str = "synthetic_demo"
 
     @property
     def final_text(self) -> str | None:

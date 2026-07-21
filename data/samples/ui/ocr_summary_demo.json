@@ -1,5 +1,6 @@
 {
-  "data_origin": "SYNTHETIC_UI_DEMO",
+  "data_origin": "synthetic_demo",
+  "is_demo": true,
   "detected": 142,
   "valid": 120,
   "doubtful": 8,

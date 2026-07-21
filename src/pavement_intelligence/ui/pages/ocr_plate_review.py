@@ -549,6 +549,12 @@ if previous_page_mode == REAL_MODE and page_mode != REAL_MODE:
     cleanup_plate_session(st.session_state)
     initialize_plate_session(st.session_state)
 st.session_state["plate_session_active_ui_mode"] = page_mode
+if st.session_state.get("demo_mode_active") and page_mode == REAL_MODE:
+    st.error(
+        "Reinicie la demostración antes de analizar una fuente OCR real; "
+        "los dos orígenes no pueden coexistir en la misma sesión."
+    )
+    st.stop()
 if page_mode == REAL_MODE:
     _render_real_ocr()
     st.stop()

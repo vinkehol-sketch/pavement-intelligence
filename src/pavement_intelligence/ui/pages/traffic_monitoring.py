@@ -134,7 +134,7 @@ def _export_csv() -> bytes:
     writer = csv.writer(buffer)
     writer.writerow(["origen", "categoría", "conteo"])
     for item in state.categories:
-        writer.writerow(["SYNTHETIC_UI_DEMO", item.label, item.count])
+        writer.writerow(["synthetic_demo", item.label, item.count])
     return buffer.getvalue().encode("utf-8-sig")
 
 
@@ -1131,3 +1131,4 @@ if mode == STATIC_MODE:
     _render_monitoring_dashboard()
 else:
     _render_real_analysis(mode)
+

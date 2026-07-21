@@ -26,15 +26,25 @@ st.caption(
     "No exporta el estado completo de Streamlit, rutas locales, costos, firmas ni aprobación normativa."
 )
 st.session_state.setdefault("integrated_dossier_history", [])
+demo_request = st.session_state.get("integrated_report_request")
+demo_request = (
+    demo_request
+    if st.session_state.get("demo_mode_active")
+    and isinstance(demo_request, ReportRequest)
+    else None
+)
+defaults = demo_request.administrative if demo_request else AdministrativeData(
+    "", "", "", "", "", "", ""
+)
 
 st.subheader("Datos administrativos")
-project_name = st.text_input("Nombre del proyecto")
-segment = st.text_input("Tramo")
-location = st.text_input("Ubicación")
-organization = st.text_input("Entidad u organización")
-responsible = st.text_input("Responsable")
-reviewer = st.text_input("Revisor")
-observations = st.text_area("Observaciones administrativas")
+project_name = st.text_input("Nombre del proyecto", value=defaults.project_name)
+segment = st.text_input("Tramo", value=defaults.segment)
+location = st.text_input("Ubicación", value=defaults.location)
+organization = st.text_input("Entidad u organización", value=defaults.organization)
+responsible = st.text_input("Responsable", value=defaults.responsible)
+reviewer = st.text_input("Revisor", value=defaults.reviewer)
+observations = st.text_area("Observaciones administrativas", value=defaults.observations)
 
 records = collect_phase_records(st.session_state)
 st.subheader("Estado de fases y continuidad")
@@ -57,15 +67,23 @@ st.dataframe(
 )
 
 mode = st.segmented_control(
-    "Modo de reporte", [x.value for x in ReportMode], default=ReportMode.PARTIAL.value
+    "Modo de reporte",
+    [x.value for x in ReportMode],
+    default=demo_request.mode if demo_request else ReportMode.PARTIAL.value,
 )
-included = st.multiselect("Fases incluidas", list(PHASES), default=list(PHASES))
+included = st.multiselect(
+    "Fases incluidas",
+    list(PHASES),
+    default=list(demo_request.included_phases) if demo_request else list(PHASES),
+)
 partial_ack = st.checkbox(
     "Acepto generar un reporte parcial que identifica explícitamente fases faltantes",
+    value=demo_request.partial_report_acknowledged if demo_request else False,
     disabled=mode != ReportMode.PARTIAL.value,
 )
 include_history = st.checkbox(
-    "Incluir únicamente el último resultado anterior disponible por fase"
+    "Incluir únicamente el último resultado anterior disponible por fase",
+    value=demo_request.include_last_history if demo_request else False,
 )
 
 request = ReportRequest(
