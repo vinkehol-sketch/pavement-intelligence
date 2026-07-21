@@ -14,6 +14,7 @@ from pavement_intelligence.esal.projection_workflow import (
     projection_transfer_is_current, store_projection_transfer,
 )
 from pavement_intelligence.esal.workflow import ESALWorkflowResult
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 
 def render_projection_section(current_esal: ESALWorkflowResult) -> None:
@@ -46,10 +47,18 @@ def render_projection_section(current_esal: ESALWorkflowResult) -> None:
         st.error("DESACTUALIZADO: la huella o el identificador del resultado 3A cambió. Transfiera nuevamente.")
 
     st.subheader("Base temporal y distribución")
-    source = st.selectbox("Origen del factor diario", options=list(TemporalFactorSource),
-                          format_func=lambda x: x.value)
+    source = st.selectbox(
+        "Origen del factor diario",
+        options=list(TemporalFactorSource),
+        format_func=lambda x: x.value,
+        key="esal3b_source",
+    )
     unknown = source == TemporalFactorSource.DEMONSTRATION
-    register_interval = st.checkbox("Registrar fecha y hora de inicio/fin", disabled=unknown)
+    register_interval = st.checkbox(
+        "Registrar fecha y hora de inicio/fin",
+        disabled=unknown,
+        key="esal3b_register_interval",
+    )
     start_at = end_at = None
     if register_interval:
         start_date = st.date_input("Fecha de inicio", key="esal3b_start_date")
@@ -58,31 +67,88 @@ def render_projection_section(current_esal: ESALWorkflowResult) -> None:
         end_time = st.time_input("Hora de fin", key="esal3b_end_time")
         start_at = datetime.combine(start_date, start_time).isoformat()
         end_at = datetime.combine(end_date, end_time).isoformat()
-    hours = None if unknown else st.number_input("Horas observadas", min_value=0.01, value=24.0)
+    hours = None if unknown else st.number_input(
+        "Horas observadas",
+        min_value=0.01,
+        **widget_default(st.session_state, "esal3b_hours", 24.0),
+    )
     manual_factor = None
     if source in {TemporalFactorSource.MANUAL, TemporalFactorSource.TPDA}:
         manual_factor = st.number_input("Factor de expansión diario", min_value=0.000001, value=1.0)
-    source_reference = st.text_input("Fuente del factor temporal", value="Registro temporal revisado")
-    responsible = st.text_input("Responsable temporal")
-    justification = st.text_input("Justificación temporal", value="Cobertura declarada por el operador")
-    fdd = st.number_input("FDD", min_value=0.000001, max_value=1.0, value=0.5)
-    fdc = st.number_input("FDC", min_value=0.000001, max_value=1.0, value=1.0)
-    days = st.number_input("Días de operación por año", min_value=1, max_value=366, value=365, step=1)
-    base_year = st.number_input("Año base (n=0)", min_value=1900, max_value=2500,
-                                value=transfer.source_reference_year or 2026, step=1)
-    years = st.number_input("Número de años de la serie", min_value=1, max_value=100, value=5, step=1)
+    source_reference = st.text_input(
+        "Fuente del factor temporal",
+        **widget_default(
+            st.session_state, "esal3b_source_reference", "Registro temporal revisado"
+        ),
+    )
+    responsible = st.text_input("Responsable temporal", key="esal3b_responsible")
+    justification = st.text_input(
+        "Justificación temporal",
+        **widget_default(
+            st.session_state,
+            "esal3b_justification",
+            "Cobertura declarada por el operador",
+        ),
+    )
+    fdd = st.number_input(
+        "FDD",
+        min_value=0.000001,
+        max_value=1.0,
+        **widget_default(st.session_state, "esal3b_fdd", 0.5),
+    )
+    fdc = st.number_input(
+        "FDC",
+        min_value=0.000001,
+        max_value=1.0,
+        **widget_default(st.session_state, "esal3b_fdc", 1.0),
+    )
+    days = st.number_input(
+        "Días de operación por año",
+        min_value=1,
+        max_value=366,
+        step=1,
+        **widget_default(st.session_state, "esal3b_days", 365),
+    )
+    base_year = st.number_input(
+        "Año base (n=0)",
+        min_value=1900,
+        max_value=2500,
+        step=1,
+        **widget_default(
+            st.session_state, "esal3b_base_year", transfer.source_reference_year or 2026
+        ),
+    )
+    years = st.number_input(
+        "Número de años de la serie",
+        min_value=1,
+        max_value=100,
+        step=1,
+        **widget_default(st.session_state, "esal3b_years", 5),
+    )
 
     st.subheader("Crecimiento explícito por categoría")
     rates = []
     for category in transfer.categories:
         c1, c2, c3 = st.columns(3)
-        rate = c1.number_input(f"Tasa anual % — {category}", value=0.0, key=f"esal3b_rate_{category}")
-        rate_source = c2.text_input(f"Fuente — {category}", value="Definida por usuario", key=f"esal3b_src_{category}")
-        condition = c3.text_input(f"Condición — {category}", value="REVISADA", key=f"esal3b_cond_{category}")
+        rate = c1.number_input(
+            f"Tasa anual % — {category}",
+            **widget_default(st.session_state, f"esal3b_rate_{category}", 0.0),
+        )
+        rate_source = c2.text_input(
+            f"Fuente — {category}",
+            **widget_default(
+                st.session_state, f"esal3b_src_{category}", "Definida por usuario"
+            ),
+        )
+        condition = c3.text_input(
+            f"Condición — {category}",
+            **widget_default(st.session_state, f"esal3b_cond_{category}", "REVISADA"),
+        )
         rates.append(CategoryGrowthRate(category, rate, rate_source, condition))
-    reviewer = st.text_input("Revisor Fase 3B")
+    reviewer = st.text_input("Revisor Fase 3B", key="esal3b_reviewer")
     synthetic_ack = st.checkbox("Reconozco el uso exclusivamente demostrativo de datos sintéticos",
-                                disabled=not transfer.is_synthetic)
+                                disabled=not transfer.is_synthetic,
+                                key="esal3b_synthetic_ack")
 
     try:
         temporal = build_temporal_base(

@@ -21,8 +21,8 @@ versiona videos, modelos, pesos o cachés.
 
 1. Inicie Streamlit con el intérprete del proyecto.
 2. Pulse **Cargar caso demostrativo** en la barra lateral.
-3. Recorra las pantallas en el orden del menú. La advertencia permanece visible
-   mientras el caso está activo.
+3. Recorra las pantallas en el orden del menú. La barra lateral muestra un estado
+   discreto mientras el caso está activo.
 4. Pulse **Reiniciar demostración** para abandonar el modo y eliminar todos sus
    objetos, resultados, revisiones OCR, PDF en memoria y widgets asociados.
 
@@ -33,11 +33,13 @@ reinicio solo está habilitado cuando el modo demo está activo.
 ## Arquitectura
 
 - `src/pavement_intelligence/demo/case.py` centraliza la semilla fija
-  `20260720`, las entradas declaradas y la construcción del caso.
+  `20260720`, las entradas declaradas y la construcción del caso. Su función
+  `build_demo_tpda_input()` es la fuente oficial del contrato TPDA demostrativo;
+  la interfaz no redefine su duración ni sus factores.
 - `src/pavement_intelligence/demo/session.py` administra la carga segura, los
   conflictos con datos operacionales y la limpieza completa.
-- `src/pavement_intelligence/ui/app.py` expone los dos controles globales, la
-  advertencia y un resumen trazable en todas las pantallas.
+- `src/pavement_intelligence/ui/app.py` expone los dos controles globales, un
+  estado lateral discreto y un resumen trazable en todas las pantallas.
 - Los fixtures visuales existentes usan el origen canónico `synthetic_demo` y
   cifras consistentes con el caso central.
 
@@ -55,7 +57,9 @@ conservan sus sellos temporales y huellas propios.
   configuraciones confirmadas de camiones.
 - Cuatro lecturas OCR ficticias (`DEMO-01`, `FICT-?2`, `TEST-X3` y una ilegible),
   enmascaradas por defecto. Dos contienen revisión/corrección demostrativa.
-- Ventana observada de 2 horas; expansión uniforme explícita `24 / 2 = 12`.
+- Aforo sintético declarado de 2 horas (14:00–16:00); 106 vehículos aprobados.
+- Expansión temporal uniforme explícita `24 / 2 = 12` y factor estacional 1.
+- Fórmula mostrada y trazada: `106 × 12 × 1 = 1.272 veh/día`.
 - Factor estacional neutro 1,0; crecimiento geométrico 4,0 %; periodo 20 años;
   FDD 0,52; FDC 1,00; 365 días/año.
 - Ocho observaciones de pesaje sintéticas para C2, C3, tractocamión y articulado,
@@ -85,12 +89,67 @@ Resultados calculados del caso:
 Los resultados pueden cambiar en los últimos decimales si evoluciona un motor;
 las entradas del caso y la semilla no cambian silenciosamente.
 
+El TPDA demostrativo conserva
+`methodologically_fit_for_next_phase = false`: no puede utilizarse como entrada
+oficial de Pesaje o ESAL. El adaptador existente permite su continuidad solo si
+el llamador activa explícitamente el modo demostración; la interfaz muestra esa
+restricción antes de transferirlo.
+
 ## Separación del OCR
 
 El OCR experimental usa claves de sesión propias. Sus textos no se incorporan a
 `traffic_counts_corrected`, TPDA ni conteos oficiales. La visibilidad comienza
 oculta y cualquier revelado se audita. Las matrículas usan palabras reservadas de
 prueba para que sean inequívocamente ficticias.
+
+## Formularios prellenados y campos obligatorios
+
+La carga del caso copia una sola vez 177 claves de widget desde
+`demo/metadata.py` y `demo/case.py`. Cada widget tiene una clave estable: si el
+usuario lo edita, Streamlit conserva la edición durante los reruns. Reiniciar la
+demostración elimina exactamente esas claves; una carga posterior restaura la
+semilla original. El modo real no consume estos valores.
+
+| Pantalla | Campos o contrato inspeccionado | Claves o modelo | Validación/bloqueo | Valor demo visible |
+|---|---|---|---|---|
+| Inicio | Proyecto, código, tipo, ubicación, tramo, entidad, fecha y responsables | `demo_project_metadata`, `demo_responsible_parties` | Identificación y trazabilidad | Evaluación demostrativa del Corredor Andino; responsables ficticios |
+| Monitoreo de tráfico | Fuente, dos sentidos, estación, fecha, operador | `demo_traffic_inputs`, `vision_batch_metadata` | Lote visual disponible | `demo://corredor-andino/video-ficticio`; `DEMO-LINE-01`; 14:00–16:00 |
+| Lecturas de placas | Revisor, privacidad, corrección, motivo y observaciones | `ocr_reviewer`, `ocr_corrected_*`, `ocr_reason_*`, `ocr_notes_*` | Una corrección exige texto, motivo y revisor | Auditor Vial; placas ficticias enmascaradas; motivos trazables |
+| Análisis de video | Fuente y eventos procesados | `vision_events_raw`, `processing_done` | Evita requerir un video real para presentar el caso | Fuente sintética; 120 eventos reproducibles |
+| Revisión del aforo | Aceptación sintética, totales, correcciones y transferencia | `traffic_review_synthetic_ack`, `traffic_review_totals_ack`, `traffic_review_transfer_ack` | Sin pendientes; reconocimientos obligatorios | Aprobados; motivo: clasificación visual supervisada |
+| Aforo y TPDA | Duración, cobertura, expansión, estacionalidad, crecimiento, periodo, FDD/FDC y revisor | `demo_tpda_authoritative_input` y widgets `demo_tpda_*` | Cobertura confirmada; revisor y reconocimiento obligatorios | 2 h; `24/2=12`; FE=1; 4 %; 20 años; 0,52/1,00; Auditor Vial |
+| Pesaje | Fuente, fecha, revisor, ejes, cargas, tolerancia y reconocimiento | `demo_weighing_inputs`, `weighing_*` | Pesos/ejes coherentes y aceptación sintética | Biblioteca demo; 8 observaciones en kN; tolerancia 5 % |
+| ESAL | Método, revisor, supuestos, reconocimientos y proyección temporal | `demo_esal_inputs`, `esal_*`, `esal3b_*` | Transferencia vigente y aceptación de aproximación académica | Ley de cuarta potencia visible; 2 h; 4 %; 20 años; 365 días |
+| Estudio de suelo | Muestra, ubicación, profundidad, CBR, humedad, fuente, responsable, correlación y adopción MR | `demo_geotechnical_inputs`, `geotech_*` | Fuente/revisor/reconocimiento; adopción justificada | Tres CBR sintéticos; promedio 7 %; `LINEAL_1500_PSI`; DEMO-LAB ficticio |
+| AASHTO 93 — SN | Diseño, tramo, R/ZR, S0, p0, pt, responsable, justificación y confirmación | `demo_pavement_inputs.phase_5a`, `aashto5a_*` | Transferencias 3B/4B vigentes y campos trazables | R=90 %; S0=0,45; p0=4,2; pt=2,5; Especialista Demo en Pavimentos |
+| AASHTO 93 — Capas | Modo, materiales, espesores, coeficientes, drenaje, mínimos, rangos y responsable | `demo_pavement_inputs.phase_5b`, `5b_*` | Propuesta completa y búsqueda discreta acotada | Capas sintéticas; rangos, incrementos, aᵢ y mᵢ visibles |
+| Diseño de pavimento | Tipo, método, W18, CBR, responsables y criterio | `esal_projection_result`, `geotechnical_phase4a_result`, `pavement_*` | Entradas positivas y serviciabilidad consistente | Pavimento flexible AASHTO 93; entradas tomadas de motores previos |
+| Reportes | Título, código, entidad, ubicación, elaboró/revisó/aprobó, fecha, versión y descargo | `demo_report_metadata`, `report_*`, `integrated_report_request` | Datos administrativos y fases obligatorias | `DEMO-1.0`; expediente completo; descargo sintético visible |
+
+El inventario ejecutable `DEMO_REQUIRED_FIELDS` registra para cada campo la
+pantalla, nombre, clave o modelo, tipo de dato, validación y valor propuesto. No
+se eliminaron validaciones: los bloqueos se satisfacen mediante entradas válidas,
+reconocimientos explícitos y transferencias ya construidas por los adaptadores.
+
+## Recorrido exacto de demostración
+
+1. Cargar el caso desde la barra lateral y revisar la ficha sintética en Inicio.
+2. Abrir Monitoreo, Lecturas de placas y Análisis de video para presentar eventos,
+   privacidad OCR y separación del conteo oficial.
+3. Abrir Revisión del aforo y comprobar que no quedan categorías pendientes.
+4. En Aforo y TPDA verificar `106 × 12 × 1 = 1.272 veh/día` y la proyección.
+5. Recorrer Pesaje y ESAL; mostrar ejes/cargas, ley de cuarta potencia y proyección.
+6. En Estudio de suelo revisar CBR, correlación y adopción explícita de MR.
+7. Recorrer SN requerido, Capas demostrativas y Diseño de pavimento.
+8. Abrir Reportes, revisar la identificación ficticia y descargar el expediente.
+9. Pulsar **Reiniciar demostración** para eliminar metadatos, responsables,
+   widgets y resultados sintéticos.
+
+Limitaciones: Monitoreo, Video y OCR representan datos sintéticos ya preparados;
+no ejecutan YOLO ni PaddleOCR al cargar el caso. La pantalla histórica Diseño de
+pavimento consume W18 y CBR calculados por las fases formales, pero su bloque de
+responsables es solo identificación visible porque ese motor legado no posee un
+contrato administrativo propio.
 
 ## Limitación contractual documentada
 
@@ -119,10 +178,11 @@ Las pruebas específicas verifican:
 
 Resultados de validación de esta implementación:
 
-- Pruebas focalizadas del modo demo y presentación: **39 aprobadas**.
-- AppTest manual automatizado: carga del caso y navegación por las 13 pantallas,
-  **sin excepciones**; reinicio completo verificado.
-- Suite completa: **880 aprobadas, 1 omitida y 4 fallos preexistentes**.
+- Pruebas específicas del modo demo: **22 aprobadas**.
+- AppTest parametrizado: las 13 pantallas cargan prellenadas **sin excepciones**;
+  las acciones principales no quedan deshabilitadas por datos faltantes y el
+  reinicio completo está verificado.
+- Suite completa: **898 aprobadas, 1 omitida y 4 fallos preexistentes**.
 - Ruff sobre archivos modificados: aprobado.
 - `python -m pip check`: aprobado, sin dependencias rotas.
 - `git diff --check`: aprobado.

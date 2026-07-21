@@ -27,14 +27,8 @@ def render() -> None:
     )
 
     demo_active = bool(st.session_state.get("demo_mode_active"))
-    if demo_active:
-        st.error("DATOS SINTÉTICOS — SOLO DEMOSTRACIÓN", icon=":material/science:")
+    if not demo_active:
         st.caption(
-            "Origen: synthetic_demo · is_demo: true · "
-            f"Caso: {st.session_state.get('demo_case_id')}"
-        )
-    else:
-        st.info(
             "Use **Cargar caso demostrativo** en la barra lateral para poblar el flujo "
             "completo sin mezclarlo con datos reales."
         )
@@ -88,6 +82,8 @@ def render() -> None:
 
     if demo_active:
         summary = st.session_state.get("demo_case_summary", {})
+        project = st.session_state.get("demo_project_metadata", {})
+        parties = st.session_state.get("demo_responsible_parties", {})
         st.subheader("Resumen calculado del corredor ficticio")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Cruces observados", summary.get("observed_crossings", 0))
@@ -100,9 +96,19 @@ def render() -> None:
         g3.metric("SN requerido", f"{summary.get('required_sn', 0):.3f}")
         g4.metric("Reporte", summary.get("report_state", "—"))
         st.caption(
-            "Los factores 24/2, 4,0 %, 20 años, FDD 0,52, FDC 1,00 y los "
-            "parámetros AASHTO están declarados en sus contratos de entrada."
+            f"Aforo sintético declarado: {summary.get('declared_duration_hours', 0):g} horas. "
+            f"{summary.get('tpda_formula', '106 × 12 × 1 = 1.272 veh/día')}. "
+            "Crecimiento 4,0 %, 20 años, FDD 0,52 y FDC 1,00."
         )
+        with st.expander("Ficha sintética del caso", expanded=True):
+            st.json(
+                {
+                    "proyecto": project,
+                    "responsables_ficticios": parties,
+                    "data_origin": "synthetic_demo",
+                    "is_demo": True,
+                }
+            )
 
     st.markdown("---")
 

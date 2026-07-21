@@ -3,6 +3,7 @@ from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
 from pavement_intelligence.traffic.tpda_workflow import MethodologicalStatus
+from pavement_intelligence.demo import build_demo_case
 
 
 PAGE = (
@@ -100,3 +101,22 @@ def test_ui_scenario_5_duration_change_marks_result_stale() -> None:
     app = app.run()
     assert app.session_state["tpda_phase1_result"].calculation_id == original.calculation_id
     assert any("DESACTUALIZADO" in element.value for element in app.error)
+
+
+def test_demo_ui_preserves_two_hour_contract_and_shows_formula_and_transfer_warning() -> None:
+    case = build_demo_case()
+    app = AppTest.from_file(str(PAGE), default_timeout=60)
+    for key, value in case.session_payload.items():
+        app.session_state[key] = value
+
+    app = app.run()
+
+    assert not app.exception
+    duration = widget(app.number_input, "Duración declarada del aforo (horas)")
+    assert duration.value == 2
+    assert not any("DESACTUALIZADO" in item.value for item in app.error)
+    assert any("106 × 12 × 1 = 1.272 veh/día" in item.value for item in app.code)
+    assert any(
+        "methodologically_fit_for_next_phase=false" in item.value
+        for item in app.warning
+    )

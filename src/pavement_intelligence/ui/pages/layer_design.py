@@ -30,6 +30,7 @@ from pavement_intelligence.aashto93.sn_workflow import (
     AASHTO93Result,
     result_is_stale as phase5a_result_is_stale,
 )
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 st.title("Diseño demostrativo por capas · Fase 5B")
 st.warning(MANDATORY_WARNING)
@@ -79,16 +80,22 @@ catalog_by_layer = {
     for kind in LayerType
 }
 mode = st.segmented_control(
-    "Modo de diseño", [x.value for x in DesignMode], default=DesignMode.MANUAL.value
+    "Modo de diseño",
+    [x.value for x in DesignMode],
+    **widget_default(
+        st.session_state, "5b_mode", DesignMode.MANUAL.value, parameter="default"
+    ),
 )
-responsible = st.text_input("Responsable Fase 5B")
-justification = st.text_area("Justificación de la propuesta y parámetros")
+responsible = st.text_input("Responsable Fase 5B", key="5b_responsible")
+justification = st.text_area(
+    "Justificación de la propuesta y parámetros", key="5b_justification"
+)
 tolerance = st.number_input(
     "Tolerancia de cumplimiento SN",
     min_value=0.0,
     max_value=0.1,
-    value=0.001,
     format="%.4f",
+    **widget_default(st.session_state, "5b_tolerance", 0.001),
 )
 adjusted = st.selectbox(
     "Capa a ajustar",
@@ -106,7 +113,8 @@ for kind, label in (
     with st.container(border=True):
         st.markdown(f"#### {label}")
         material = st.text_input(
-            f"Material — {label}", value=label, key=f"5b_mat_{kind.value}"
+            f"Material — {label}",
+            **widget_default(st.session_state, f"5b_mat_{kind.value}", label),
         )
         unit = st.selectbox(
             f"Unidad — {label}", ["in", "cm", "mm"], key=f"5b_unit_{kind.value}"
@@ -114,8 +122,11 @@ for kind, label in (
         thickness = st.number_input(
             f"Espesor propuesto — {label}",
             min_value=0.0,
-            value=4.0 if kind == LayerType.ASPHALT else 6.0,
-            key=f"5b_d_{kind.value}",
+            **widget_default(
+                st.session_state,
+                f"5b_d_{kind.value}",
+                4.0 if kind == LayerType.ASPHALT else 6.0,
+            ),
         )
         st.caption(f"Conversión interna: {thickness_to_inches(thickness, unit):.6f} in")
         coeff_mode = st.segmented_control(
@@ -134,14 +145,18 @@ for kind, label in (
         a_value = st.number_input(
             f"Coeficiente estructural a — {label}",
             min_value=0.0001,
-            value=float(selected.value),
             disabled=coeff_mode == "CATALOGO",
-            key=f"5b_a_{kind.value}",
+            **widget_default(
+                st.session_state, f"5b_a_{kind.value}", float(selected.value)
+            ),
         )
         a_source = st.text_input(
             f"Fuente de a — {label}",
-            value=selected.source if coeff_mode == "CATALOGO" else "",
-            key=f"5b_asource_{kind.value}",
+            **widget_default(
+                st.session_state,
+                f"5b_asource_{kind.value}",
+                selected.source if coeff_mode == "CATALOGO" else "",
+            ),
         )
         if kind == LayerType.ASPHALT:
             drainage, quality, saturation, drainage_source = (
@@ -156,8 +171,7 @@ for kind, label in (
                 f"Coeficiente de drenaje — {label}",
                 min_value=0.40,
                 max_value=1.40,
-                value=1.0,
-                key=f"5b_m_{kind.value}",
+                **widget_default(st.session_state, f"5b_m_{kind.value}", 1.0),
             )
             quality = st.text_input(
                 f"Calidad de drenaje — {label}", key=f"5b_q_{kind.value}"
@@ -166,8 +180,7 @@ for kind, label in (
                 f"Tiempo cercano a saturación (%) — {label}",
                 min_value=0.0,
                 max_value=100.0,
-                value=5.0,
-                key=f"5b_sat_{kind.value}",
+                **widget_default(st.session_state, f"5b_sat_{kind.value}", 5.0),
             )
             drainage_source = st.text_input(
                 f"Fuente del drenaje — {label}", key=f"5b_msource_{kind.value}"
@@ -175,8 +188,7 @@ for kind, label in (
         minimum = st.number_input(
             f"Mínimo manual declarado (0 = no declarado) — {label}",
             min_value=0.0,
-            value=0.0,
-            key=f"5b_min_{kind.value}",
+            **widget_default(st.session_state, f"5b_min_{kind.value}", 0.0),
         )
         layers.append(
             LayerInput(
@@ -207,26 +219,24 @@ if mode == DesignMode.DISCRETE.value:
         minimum = st.number_input(
             f"Mínimo búsqueda (in) — {kind.value}",
             min_value=0.0,
-            value=2.0,
-            key=f"5b_smin_{kind.value}",
+            **widget_default(st.session_state, f"5b_smin_{kind.value}", 2.0),
         )
         maximum = st.number_input(
             f"Máximo búsqueda (in) — {kind.value}",
             min_value=0.0,
-            value=8.0,
-            key=f"5b_smax_{kind.value}",
+            **widget_default(st.session_state, f"5b_smax_{kind.value}", 8.0),
         )
         increment = st.number_input(
             f"Incremento (in) — {kind.value}",
             min_value=0.01,
-            value=1.0,
-            key=f"5b_sinc_{kind.value}",
+            **widget_default(st.session_state, f"5b_sinc_{kind.value}", 1.0),
         )
         rows.append(SearchRange(kind.value, minimum, maximum, increment))
     search_ranges = tuple(rows)
     order = st.selectbox(
         "Orden demostrativo",
         ["MENOR_EXCEDENTE_SN", "MENOR_ESPESOR_TOTAL", "MENOR_ESPESOR_ASFALTICO"],
+        key="5b_order",
     )
 
 rounding = []

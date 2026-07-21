@@ -26,6 +26,7 @@ from pavement_intelligence.ui.utils.plate_session import (
 )
 from pavement_intelligence.ui.utils.plate_visualization import annotate_plate_frame
 from pavement_intelligence.ui.utils.styles import load_dashboard_css, render_status_chip
+from pavement_intelligence.ui.utils.widget_state import widget_default
 from pavement_intelligence.ui.utils.uploaded_video import (
     ALLOWED_UPLOAD_EXTENSIONS,
     MAX_UPLOAD_SIZE_MIB,
@@ -62,6 +63,17 @@ LOCAL_SOURCE = "Video local"
 UPLOAD_SOURCE = "Cargar video"
 CAMERA_SOURCE = "Cámara"
 DEMO_VIDEO_RELATIVE = "data/samples/ui/assets/traffic_monitoring_demo.mp4"
+
+
+def _reviewer_options() -> tuple[str, ...]:
+    options = REVIEWERS
+    if st.session_state.get("demo_mode_active"):
+        reviewer = str(
+            st.session_state.get("demo_responsible_parties", {}).get("reviewer", "")
+        )
+        if reviewer and reviewer not in options:
+            options += (reviewer,)
+    return options
 
 
 @st.cache_data(max_entries=1)
@@ -505,7 +517,9 @@ def _render_real_ocr() -> None:
         key="plate_session_selected_reading_id",
     )
     selected = by_id[selected_id]
-    reviewer = st.selectbox("Revisor OCR", REVIEWERS, key="plate_session_reviewer")
+    reviewer = st.selectbox(
+        "Revisor OCR", _reviewer_options(), key="plate_session_reviewer"
+    )
     visible = st.session_state.get("plate_session_visible_reading_id") == selected_id
     if st.button("Ocultar lectura" if visible else "Mostrar lectura"):
         toggle_plate_reveal(st.session_state, selected_id, reviewer)
@@ -659,7 +673,7 @@ with right:
             frame_path = PROJECT_ROOT / selected.frame_image_path
             if frame_path.is_file():
                 st.image(str(frame_path), caption="Fotograma sintético de referencia", width="stretch")
-            reviewer = st.selectbox("Revisor", REVIEWERS, key="ocr_reviewer")
+            reviewer = st.selectbox("Revisor", _reviewer_options(), key="ocr_reviewer")
             visible = st.session_state.get("ocr_visible_reading_id") == selected.reading_id
             if st.button(
                 "Ocultar placa" if visible else "Mostrar placa",
@@ -677,7 +691,14 @@ with right:
             shown_text = selected.original_text if visible else selected.masked_text
             st.text_input("Lectura original OCR (inmutable)", value=shown_text, disabled=True, key=f"ocr_original_{selected.reading_id}")
             st.caption(f"Confianza: {selected.confidence:.0%} · Alternativas: {', '.join(selected.suggested_alternatives) or 'Ninguna'}")
-            corrected = st.text_input("Lectura corregida", value=selected.original_text, key=f"ocr_corrected_{selected.reading_id}")
+            corrected = st.text_input(
+                "Lectura corregida",
+                **widget_default(
+                    st.session_state,
+                    f"ocr_corrected_{selected.reading_id}",
+                    selected.original_text,
+                ),
+            )
             reason = st.selectbox("Motivo de corrección", REASONS, key=f"ocr_reason_{selected.reading_id}")
             notes = st.text_area("Observaciones", key=f"ocr_notes_{selected.reading_id}")
 

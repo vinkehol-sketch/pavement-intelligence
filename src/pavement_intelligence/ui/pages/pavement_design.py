@@ -8,7 +8,7 @@ y propuesta de espesores de capas.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -233,6 +233,13 @@ def render() -> None:
         "**Método AASHTO 93**. Complete los parámetros de cada sección y "
         "ejecute el diseño."
     )
+    if st.session_state.get("demo_mode_active"):
+        with st.expander("Responsables y criterio del diseño demostrativo", expanded=True):
+            st.text_input(
+                "Responsable del diseño", key="pavement_responsible", disabled=True
+            )
+            st.text_input("Revisor del diseño", key="pavement_reviewer", disabled=True)
+            st.text_area("Criterios y observaciones", key="pavement_criteria", disabled=True)
     st.markdown("---")
 
     # ── Sección 1: Parámetros de tránsito ─────────────────────────────────────
@@ -240,6 +247,11 @@ def render() -> None:
 
     esal_result = st.session_state.get("esal_result")
     esal_default = 1_850_000.0
+
+    if st.session_state.get("demo_mode_active"):
+        projection_result = st.session_state.get("esal_projection_result")
+        if projection_result is not None:
+            esal_default = float(projection_result.accumulated_esal)
 
     if esal_result is not None:
         esal_default = esal_result.total_esal_w18
@@ -331,6 +343,11 @@ def render() -> None:
     mr_session = st.session_state.get("mr_psi")
     cbr_default = float(cbr_session) if cbr_session is not None else 5.0
 
+    if st.session_state.get("demo_mode_active"):
+        geotechnical_result = st.session_state.get("geotechnical_phase4a_result")
+        if geotechnical_result is not None:
+            cbr_default = float(geotechnical_result.design_cbr_percent)
+
     if cbr_session is not None:
         st.success(
             f"✅ CBR de diseño disponible desde el módulo de Suelo: "
@@ -365,7 +382,7 @@ def render() -> None:
     st.markdown("---")
     st.subheader("5️⃣ Período de Diseño")
 
-    periodo_diseno = st.slider(
+    st.slider(
         "Período de diseño (años)",
         min_value=10, max_value=30, value=20, step=5,
         help="AASHTO recomienda 20 años para vías secundarias.",
@@ -406,7 +423,7 @@ def render() -> None:
                 key=f"layer_a_{i}",
             )
             t_i = st.number_input(
-                f"Espesor propuesto (cm)",
+                "Espesor propuesto (cm)",
                 5.0, 60.0, value=t_def, step=1.0,
                 key=f"layer_t_{i}",
             )
@@ -489,7 +506,6 @@ def render() -> None:
         # ── Gráfico de barras de capas ─────────────────────────────────────────
         colores_capas = ["#2C3E50", "#7F8C8D", "#BDC3C7"]
         fig_capas = go.Figure()
-        y_pos = 0.0
         for i, ld in enumerate(reversed(resultado.layers)):
             color = colores_capas[i % len(colores_capas)]
             fig_capas.add_trace(go.Bar(

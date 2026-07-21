@@ -15,6 +15,7 @@ from pavement_intelligence.geotechnics.cbr_workflow import (
     correlation_catalog, result_is_stale, store_geotechnical_result,
 )
 from pavement_intelligence.ui.pages.resilient_modulus_review_section import render_review_section
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 
 def _demo_records() -> tuple[CBRRecord, ...]:
@@ -47,27 +48,76 @@ def render() -> None:
 
     st.subheader("Registrar resultado CBR")
     with st.form("cbr_record_form", border=True):
-        study_id = st.text_input("Identificador del estudio")
-        segment = st.text_input("Proyecto o tramo")
-        location = st.text_input("Ubicación o progresiva")
-        depth = st.number_input("Profundidad (m)", min_value=0.0, value=1.5)
-        sample_type = st.text_input("Tipo de muestra", value="Muestra alterada")
-        sample_condition = st.text_input("Condición de la muestra", value="Preparada")
-        cbr_reported = st.number_input("CBR reportado o seleccionado (%)", min_value=0.01, value=5.0)
-        cbr_25 = st.number_input("CBR a 2,5 mm (%) — 0 si no disponible", min_value=0.0, value=0.0)
-        cbr_50 = st.number_input("CBR a 5,0 mm (%) — 0 si no disponible", min_value=0.0, value=0.0)
-        selection = st.text_input("Criterio de selección del CBR reportado", value="Valor final informado")
-        compaction = st.number_input("Compactación (%)", min_value=0.01, max_value=100.0, value=95.0)
-        density = st.number_input("Densidad seca (kN/m³) — 0 si no disponible", min_value=0.0, value=0.0)
-        moisture = st.text_input("Condición de humedad", value="Saturada")
-        saturated = st.checkbox("Muestra saturada", value=True)
-        energy = st.text_input("Energía de compactación", value="Proctor modificado")
-        test_date = st.date_input("Fecha del ensayo", value=date.today())
-        source = st.text_input("Laboratorio o fuente")
-        responsible = st.text_input("Responsable")
-        standard = st.text_input("Norma o procedimiento declarado", value="ASTM D1883 / AASHTO T 193 declarado")
-        origin = st.selectbox("Origen del dato", list(DataOrigin), format_func=lambda item: item.value)
-        observations = st.text_area("Observaciones")
+        study_id = st.text_input("Identificador del estudio", key="geotech_study_id")
+        segment = st.text_input("Proyecto o tramo", key="geotech_segment")
+        location = st.text_input("Ubicación o progresiva", key="geotech_location")
+        depth = st.number_input(
+            "Profundidad (m)", min_value=0.0,
+            **widget_default(st.session_state, "geotech_depth", 1.5),
+        )
+        sample_type = st.text_input(
+            "Tipo de muestra",
+            **widget_default(st.session_state, "geotech_sample_type", "Muestra alterada"),
+        )
+        sample_condition = st.text_input(
+            "Condición de la muestra",
+            **widget_default(st.session_state, "geotech_sample_condition", "Preparada"),
+        )
+        cbr_reported = st.number_input(
+            "CBR reportado o seleccionado (%)", min_value=0.01,
+            **widget_default(st.session_state, "geotech_cbr_reported", 5.0),
+        )
+        cbr_25 = st.number_input(
+            "CBR a 2,5 mm (%) — 0 si no disponible", min_value=0.0,
+            **widget_default(st.session_state, "geotech_cbr_25", 0.0),
+        )
+        cbr_50 = st.number_input(
+            "CBR a 5,0 mm (%) — 0 si no disponible", min_value=0.0,
+            **widget_default(st.session_state, "geotech_cbr_50", 0.0),
+        )
+        selection = st.text_input(
+            "Criterio de selección del CBR reportado",
+            **widget_default(st.session_state, "geotech_selection", "Valor final informado"),
+        )
+        compaction = st.number_input(
+            "Compactación (%)", min_value=0.01, max_value=100.0,
+            **widget_default(st.session_state, "geotech_compaction", 95.0),
+        )
+        density = st.number_input(
+            "Densidad seca (kN/m³) — 0 si no disponible", min_value=0.0,
+            **widget_default(st.session_state, "geotech_density", 0.0),
+        )
+        moisture = st.text_input(
+            "Condición de humedad",
+            **widget_default(st.session_state, "geotech_moisture", "Saturada"),
+        )
+        saturated = st.checkbox(
+            "Muestra saturada",
+            **widget_default(st.session_state, "geotech_saturated", True),
+        )
+        energy = st.text_input(
+            "Energía de compactación",
+            **widget_default(st.session_state, "geotech_energy", "Proctor modificado"),
+        )
+        test_date = st.date_input(
+            "Fecha del ensayo",
+            **widget_default(st.session_state, "geotech_test_date", date.today()),
+        )
+        source = st.text_input("Laboratorio o fuente", key="geotech_source")
+        responsible = st.text_input("Responsable", key="geotech_responsible")
+        standard = st.text_input(
+            "Norma o procedimiento declarado",
+            **widget_default(
+                st.session_state,
+                "geotech_standard",
+                "ASTM D1883 / AASHTO T 193 declarado",
+            ),
+        )
+        origin = st.selectbox(
+            "Origen del dato", list(DataOrigin), format_func=lambda item: item.value,
+            key="geotech_origin",
+        )
+        observations = st.text_area("Observaciones", key="geotech_observations")
         submitted = st.form_submit_button("Registrar CBR", icon=":material/add:")
     if submitted:
         record = CBRRecord(
@@ -114,7 +164,10 @@ def render() -> None:
                       if item.record_id in excluded else item for item in records)
 
     st.subheader("CBR de diseño y correlación")
-    mode = st.selectbox("Criterio de CBR de diseño", list(DesignCBRMode), format_func=lambda item: item.value)
+    mode = st.selectbox(
+        "Criterio de CBR de diseño", list(DesignCBRMode),
+        format_func=lambda item: item.value, key="geotech_design_mode",
+    )
     percentile = st.number_input("Percentil (%)", min_value=0.0, max_value=100.0, value=10.0,
                                  disabled=mode != DesignCBRMode.PERCENTILE)
     manual_id = st.selectbox("Registro para selección manual", [""] + [item.record_id for item in records],
@@ -122,16 +175,24 @@ def render() -> None:
     justification = st.text_input("Justificación de selección manual",
                                   disabled=mode != DesignCBRMode.JUSTIFIED_MANUAL)
     catalog = correlation_catalog()
-    correlation_id = st.selectbox("Correlación CBR → MR", list(catalog),
-                                  format_func=lambda key: catalog[key].name)
+    correlation_id = st.selectbox(
+        "Correlación CBR → MR", list(catalog),
+        format_func=lambda key: catalog[key].name, key="geotech_correlation_id",
+    )
     correlation = catalog[correlation_id]
     st.code(correlation.equation)
     st.caption(f"Intervalo: {correlation.minimum_cbr_percent}–{correlation.maximum_cbr_percent} % CBR | "
                f"Salida nativa: {correlation.native_output_unit} | {correlation.status}")
     st.info(correlation.reference)
-    output_unit = st.selectbox("Unidad de visualización del módulo resiliente", ["MPa", "kPa", "psi", "ksi"])
-    reviewer = st.text_input("Responsable de Fase 4A")
-    synthetic_ack = st.checkbox("Reconozco expresamente los datos sintéticos como demostrativos")
+    output_unit = st.selectbox(
+        "Unidad de visualización del módulo resiliente",
+        ["MPa", "kPa", "psi", "ksi"], key="geotech_output_unit",
+    )
+    reviewer = st.text_input("Responsable de Fase 4A", key="geotech_phase4a_reviewer")
+    synthetic_ack = st.checkbox(
+        "Reconozco expresamente los datos sintéticos como demostrativos",
+        key="geotech_synthetic_ack",
+    )
     data = CBRWorkflowInput(
         study_id=records[0].study_id, project_segment=records[0].project_segment, records=effective,
         design_mode=mode.value, percentile=percentile if mode == DesignCBRMode.PERCENTILE else None,

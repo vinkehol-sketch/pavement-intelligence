@@ -32,6 +32,7 @@ from pavement_intelligence.geotechnics.resilient_modulus_review import (
     ResilientModulusReviewResult,
     review_is_stale,
 )
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 st.title("AASHTO 93 — SN requerido · Fase 5A")
 st.warning(MANDATORY_WARNING)
@@ -128,41 +129,71 @@ st.caption(
     f"Conversión controlada para la ecuación: {convert_mr_to_psi(mr.adopted_mr, mr.unit):,.2f} psi"
 )
 with st.form("aashto5a_form", border=True):
-    design_id = st.text_input("Identificador del diseño")
-    segment = st.text_input("Tramo")
-    reliability = st.selectbox("Confiabilidad R (%)", list(ZR_CATALOG))
+    design_id = st.text_input("Identificador del diseño", key="aashto5a_design_id")
+    segment = st.text_input("Tramo", key="aashto5a_segment")
+    reliability = st.selectbox(
+        "Confiabilidad R (%)", list(ZR_CATALOG), key="aashto5a_reliability"
+    )
     zr_mode = st.segmented_control(
-        "Fuente ZR", ["CATALOGO", "MANUAL_JUSTIFICADO"], default="CATALOGO"
+        "Fuente ZR",
+        ["CATALOGO", "MANUAL_JUSTIFICADO"],
+        **widget_default(
+            st.session_state, "aashto5a_zr_mode", "CATALOGO", parameter="default"
+        ),
     )
     catalog_zr = zr_from_catalog(float(reliability))
     zr = st.number_input(
-        "ZR", value=float(catalog_zr), disabled=zr_mode == "CATALOGO", format="%.4f"
+        "ZR", disabled=zr_mode == "CATALOGO", format="%.4f",
+        **widget_default(st.session_state, "aashto5a_zr", float(catalog_zr)),
     )
     st.caption(f"Catálogo {ZR_CATALOG_VERSION}: {ZR_CATALOG_SOURCE}")
     s0 = st.number_input(
-        "S0 explícito (rango admitido 0,30–0,60)", value=0.45, format="%.3f"
+        "S0 explícito (rango admitido 0,30–0,60)", format="%.3f",
+        **widget_default(st.session_state, "aashto5a_s0", 0.45),
     )
-    s0_source = st.text_input("Fuente de S0")
-    s0_condition = st.selectbox("Condición de S0", ["MANUAL", "DEMOSTRATIVO"])
-    p0 = st.number_input("Serviciabilidad inicial p0", value=4.2, format="%.2f")
-    pt = st.number_input("Serviciabilidad terminal pt", value=2.5, format="%.2f")
+    s0_source = st.text_input("Fuente de S0", key="aashto5a_s0_source")
+    s0_condition = st.selectbox(
+        "Condición de S0", ["MANUAL", "DEMOSTRATIVO"], key="aashto5a_s0_condition"
+    )
+    p0 = st.number_input(
+        "Serviciabilidad inicial p0", format="%.2f",
+        **widget_default(st.session_state, "aashto5a_p0", 4.2),
+    )
+    pt = st.number_input(
+        "Serviciabilidad terminal pt", format="%.2f",
+        **widget_default(st.session_state, "aashto5a_pt", 2.5),
+    )
     st.write(f"ΔPSI explícito calculado: **{p0 - pt:.3f}**")
-    responsible = st.text_input("Responsable")
+    responsible = st.text_input("Responsable", key="aashto5a_responsible")
     justification = st.text_area(
-        "Justificación (incluya justificación de ZR si es manual)"
+        "Justificación (incluya justificación de ZR si es manual)",
+        key="aashto5a_justification",
     )
     acknowledged = st.checkbox(
-        "Reconozco la condición demostrativa/sintética de los datos"
+        "Reconozco la condición demostrativa/sintética de los datos",
+        key="aashto5a_acknowledged",
     )
-    sn_min = st.number_input("SN mínimo", value=0.01, format="%.4f")
-    sn_max = st.number_input("SN máximo", value=15.0, format="%.2f")
-    tolerance = st.number_input("Tolerancia de residuo", value=0.0001, format="%.6f")
-    max_iterations = st.number_input("Iteraciones máximas", value=100, step=1)
+    sn_min = st.number_input(
+        "SN mínimo", format="%.4f",
+        **widget_default(st.session_state, "aashto5a_sn_min", 0.01),
+    )
+    sn_max = st.number_input(
+        "SN máximo", format="%.2f",
+        **widget_default(st.session_state, "aashto5a_sn_max", 15.0),
+    )
+    tolerance = st.number_input(
+        "Tolerancia de residuo", format="%.6f",
+        **widget_default(st.session_state, "aashto5a_tolerance", 0.0001),
+    )
+    max_iterations = st.number_input(
+        "Iteraciones máximas", step=1,
+        **widget_default(st.session_state, "aashto5a_max_iterations", 100),
+    )
     boundary_margin_fraction = st.number_input(
         "Margen relativo para advertir proximidad a límites",
         min_value=0.0,
         max_value=0.25,
-        value=0.02,
+        **widget_default(st.session_state, "aashto5a_boundary_margin", 0.02),
         format="%.3f",
         help="Fracción del ancho del intervalo; 0,02 equivale al 2 %.",
     )

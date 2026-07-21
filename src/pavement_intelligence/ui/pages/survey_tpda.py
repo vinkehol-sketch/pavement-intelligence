@@ -5,8 +5,8 @@ decisión metodológica residen en traffic.tpda_workflow.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, replace
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from pavement_intelligence.demo import build_demo_tpda_input
 from pavement_intelligence.traffic.tpda_workflow import (
     ExpansionMethod,
     FactorTrace,
@@ -120,6 +121,16 @@ def render() -> None:
     )
 
     review_payload = st.session_state.get("tpda_input_from_review")
+    demo_active = bool(st.session_state.get("demo_mode_active"))
+    demo_contract: TPDAWorkflowInput | None = None
+    if demo_active:
+        stored_contract = st.session_state.get("demo_tpda_authoritative_input")
+        demo_contract = (
+            stored_contract
+            if isinstance(stored_contract, TPDAWorkflowInput)
+            else build_demo_tpda_input()
+        )
+        st.session_state["demo_tpda_authoritative_input"] = demo_contract
     sources = ["Introducción manual", "Importar CSV", "Eventos visuales en sesión"]
     if review_payload:
         sources.insert(0, "Conteo revisado aprobado")
@@ -134,6 +145,9 @@ def render() -> None:
     temporal_evidence = False
     duration_source = "DECLARADA_POR_OPERADOR"
     reviewer_default = ""
+    corrected_defaults: dict[str, int | float] | None = None
+    assumptions: tuple[str, ...] = ("Factores configurables sujetos a respaldo del operador.",)
+    default_reclassifications: tuple[TruckReclassification, ...] = ()
 
     if source_mode == "Conteo revisado aprobado" and review_payload:
         automatic_counts, pending = _counts_from_review(review_payload)
@@ -142,6 +156,19 @@ def render() -> None:
         is_synthetic = bool(review_payload.get("is_synthetic", False))
         source_warnings.extend(review_payload.get("warnings", []))
         reviewer_default = str(review_payload.get("reviewer", ""))
+        if demo_contract is not None:
+            automatic_counts = dict(demo_contract.automatic_counts)
+            corrected_defaults = dict(demo_contract.corrected_counts)
+            pending = dict(demo_contract.pending_categories)
+            source = demo_contract.source
+            data_origin = demo_contract.data_origin
+            is_synthetic = demo_contract.is_synthetic
+            temporal_evidence = demo_contract.temporal_coverage.verified_hours is not None
+            duration_source = demo_contract.temporal_coverage.duration_source
+            reviewer_default = demo_contract.reviewer
+            source_warnings = list(demo_contract.warnings)
+            assumptions = demo_contract.assumptions
+            default_reclassifications = demo_contract.reclassifications
         st.success("Conteo revisado cargado con su trazabilidad de origen.")
     elif source_mode == "Eventos visuales en sesión":
         events = st.session_state.get("corrected_records") or st.session_state.get("events") or []
@@ -189,7 +216,10 @@ def render() -> None:
         {
             "Categoría": list(OFFICIAL_TPDA_CATEGORIES),
             "Conteo automático": [automatic_counts[c] for c in OFFICIAL_TPDA_CATEGORIES],
-            "Conteo corregido": [automatic_counts[c] for c in OFFICIAL_TPDA_CATEGORIES],
+            "Conteo corregido": [
+                (corrected_defaults or automatic_counts)[c]
+                for c in OFFICIAL_TPDA_CATEGORIES
+            ],
         }
     )
     edited = st.data_editor(
@@ -200,7 +230,7 @@ def render() -> None:
         column_config={
             "Conteo corregido": st.column_config.NumberColumn(min_value=0, step=1, format="%d")
         },
-        key="tpda_count_editor",
+        key="demo_tpda_count_editor" if demo_contract is not None else "tpda_count_editor",
     )
     corrected_counts = {
         str(row["Categoría"]): int(row["Conteo corregido"])
@@ -213,9 +243,10 @@ def render() -> None:
         value=int(pending[PENDING_TRUCK_CATEGORY]),
         step=1,
         help="No se asignan automáticamente a C2 ni se asume número de ejes.",
+        key="demo_tpda_pending" if demo_contract is not None else "tpda_pending",
     )
     pending = {PENDING_TRUCK_CATEGORY: int(pending_input)}
-    reclassifications: tuple[TruckReclassification, ...] = ()
+    reclassifications = default_reclassifications
 
     if pending_input:
         st.warning("CAMION_NO_CONFIRMADO: requiere reclasificación manual antes de continuar.")
@@ -254,8 +285,13 @@ def render() -> None:
         "Duración declarada del aforo (horas)",
         min_value=0.1,
         max_value=168.0,
-        value=24.0,
+        value=(
+            float(demo_contract.temporal_coverage.declared_hours)
+            if demo_contract is not None
+            else 24.0
+        ),
         step=1.0,
+        key="demo_tpda_duration_hours" if demo_contract is not None else "tpda_duration_hours",
     )
     duration_validation = validate_survey_duration(duration)
     for warning in duration_validation.warnings:
@@ -263,8 +299,16 @@ def render() -> None:
     for error in duration_validation.errors:
         st.error(error)
 
-    verified_hours: float | None = duration if temporal_evidence else None
-    coverage_confirmed = temporal_evidence or duration < 24
+    verified_hours: float | None = (
+        demo_contract.temporal_coverage.verified_hours
+        if demo_contract is not None
+        else duration if temporal_evidence else None
+    )
+    coverage_confirmed = (
+        demo_contract.temporal_coverage.operator_confirmed
+        if demo_contract is not None
+        else temporal_evidence or duration < 24
+    )
     if duration >= 24 and not temporal_evidence:
         st.warning(
             "El archivo o registro fue declarado como aforo de 24 horas, pero su "
@@ -279,6 +323,13 @@ def render() -> None:
         expansion_label = st.selectbox(
             "Método único de expansión temporal",
             ["Uniforme 24/duración", "Factor temporal documentado por el usuario"],
+            index=(
+                0
+                if demo_contract is None
+                or demo_contract.expansion_method == ExpansionMethod.UNIFORM_24_OVER_HOURS
+                else 1
+            ),
+            key="demo_tpda_expansion" if demo_contract is not None else "tpda_expansion",
         )
         if expansion_label.startswith("Uniforme"):
             expansion_method = ExpansionMethod.UNIFORM_24_OVER_HOURS
@@ -307,12 +358,22 @@ def render() -> None:
     seasonal_value = st.number_input(
         "f_e — factor de corrección del periodo observado",
         min_value=0.01,
-        value=1.0,
+        value=(demo_contract.seasonal_factor.value if demo_contract is not None else 1.0),
         step=0.05,
+        key="demo_tpda_seasonal" if demo_contract is not None else "tpda_seasonal",
     )
     seasonal_source = st.text_input(
         "Fuente de f_e",
-        value="Identidad 1,0; sin corrección estacional" if seasonal_value == 1 else "",
+        value=(
+            demo_contract.seasonal_factor.source
+            if demo_contract is not None
+            else "Identidad 1,0; sin corrección estacional" if seasonal_value == 1 else ""
+        ),
+        key=(
+            "demo_tpda_seasonal_source"
+            if demo_contract is not None
+            else "tpda_seasonal_source"
+        ),
     )
     seasonal_trace = FactorTrace(
         symbol="f_e",
@@ -328,6 +389,13 @@ def render() -> None:
     projection_label = st.selectbox(
         "Método de proyección",
         ["Exponencial / compuesto — principal del MVP", "Lineal B — alternativa académica no oficial"],
+        index=(
+            0
+            if demo_contract is None
+            or demo_contract.projection_method == ProjectionMethod.EXPONENTIAL
+            else 1
+        ),
+        key="demo_tpda_projection" if demo_contract is not None else "tpda_projection",
     )
     projection_method = (
         ProjectionMethod.EXPONENTIAL
@@ -340,9 +408,26 @@ def render() -> None:
             "trazabilidad histórica y está excluida del flujo normal."
         )
 
-    growth_rate = st.number_input("Tasa anual de crecimiento (%)", min_value=0.0, value=4.0)
-    design_period = st.number_input("Periodo de diseño (años)", min_value=5, value=20, step=1)
-    base_year = st.number_input("Año base", min_value=1900, value=datetime.now().year, step=1)
+    growth_rate = st.number_input(
+        "Tasa anual de crecimiento (%)",
+        min_value=0.0,
+        value=(demo_contract.growth_rate_percent if demo_contract is not None else 4.0),
+        key="demo_tpda_growth" if demo_contract is not None else "tpda_growth",
+    )
+    design_period = st.number_input(
+        "Periodo de diseño (años)",
+        min_value=5,
+        value=(demo_contract.design_period_years if demo_contract is not None else 20),
+        step=1,
+        key="demo_tpda_period" if demo_contract is not None else "tpda_period",
+    )
+    base_year = st.number_input(
+        "Año base",
+        min_value=1900,
+        value=(demo_contract.base_year if demo_contract is not None else datetime.now().year),
+        step=1,
+        key="demo_tpda_base_year" if demo_contract is not None else "tpda_base_year",
+    )
     for validation in (validate_growth_rate(growth_rate), validate_design_period(int(design_period))):
         for warning in validation.warnings:
             st.warning(warning)
@@ -350,14 +435,34 @@ def render() -> None:
             st.error(error)
 
     st.markdown("**Distribución posterior al TPDA base y a la proyección**")
-    fdd = st.number_input("FDD — factor direccional", min_value=0.01, max_value=1.0, value=0.5)
-    fdc = st.number_input("FDC — factor por carril", min_value=0.01, max_value=1.0, value=1.0)
+    fdd = st.number_input(
+        "FDD — factor direccional",
+        min_value=0.01,
+        max_value=1.0,
+        value=(demo_contract.directional_factor if demo_contract is not None else 0.5),
+        key="demo_tpda_fdd" if demo_contract is not None else "tpda_fdd",
+    )
+    fdc = st.number_input(
+        "FDC — factor por carril",
+        min_value=0.01,
+        max_value=1.0,
+        value=(demo_contract.lane_distribution_factor if demo_contract is not None else 1.0),
+        key="demo_tpda_fdc" if demo_contract is not None else "tpda_fdc",
+    )
 
-    reviewer = st.text_input("Responsable del cálculo", value=reviewer_default)
+    reviewer = st.text_input(
+        "Responsable del cálculo",
+        value=reviewer_default,
+        key="demo_tpda_reviewer" if demo_contract is not None else "tpda_reviewer",
+    )
     synthetic_ack = False
     if is_synthetic:
         st.error("Los conteos son sintéticos y solo sirven para demostración.")
-        synthetic_ack = st.checkbox("Reconozco que los datos son sintéticos")
+        synthetic_ack = st.checkbox(
+            "Reconozco que los datos son sintéticos",
+            value=(demo_contract.synthetic_acknowledged if demo_contract is not None else False),
+            key="demo_tpda_synthetic_ack" if demo_contract is not None else "tpda_synthetic_ack",
+        )
 
     batch_id = (
         str(review_payload.get("batch_hash"))
@@ -389,10 +494,39 @@ def render() -> None:
         reviewer=reviewer,
         reclassifications=reclassifications,
         warnings=tuple(source_warnings),
-        assumptions=("Factores configurables sujetos a respaldo del operador.",),
+        assumptions=assumptions,
         is_synthetic=is_synthetic,
         synthetic_acknowledged=synthetic_ack,
     )
+    if demo_contract is not None and source_mode == "Conteo revisado aprobado":
+        workflow_input = replace(
+            demo_contract,
+            automatic_counts=automatic_counts,
+            corrected_counts=corrected_counts,
+            pending_categories=pending,
+            temporal_coverage=replace(
+                demo_contract.temporal_coverage,
+                declared_hours=duration,
+                verified_hours=verified_hours,
+                operator_confirmed=coverage_confirmed,
+            ),
+            expansion_method=expansion_method,
+            temporal_factor=temporal_trace,
+            seasonal_factor=replace(
+                demo_contract.seasonal_factor,
+                value=seasonal_value,
+                source=seasonal_source or "SIN_FUENTE_DECLARADA",
+            ),
+            projection_method=projection_method,
+            growth_rate_percent=growth_rate,
+            design_period_years=int(design_period),
+            base_year=int(base_year),
+            directional_factor=fdd,
+            lane_distribution_factor=fdc,
+            reviewer=reviewer,
+            reclassifications=reclassifications,
+            synthetic_acknowledged=synthetic_ack,
+        )
 
     previous = st.session_state.get("tpda_phase1_result")
     if isinstance(previous, TPDAWorkflowResult):
@@ -420,6 +554,18 @@ def render() -> None:
             f"{result.projected_traffic_total:,.1f} veh/día",
         )
         c3.metric("Carril de diseño", f"{result.projected_design_lane_traffic:,.1f} veh/día")
+
+        if result.is_synthetic and result.batch_id == "DEMO-CORREDOR-ANDINO-01":
+            observed = sum(result.corrected_counts.values())
+            formula = (
+                f"{observed:,.0f} × {result.temporal_expansion_factor:g} × "
+                f"{result.seasonal_factor:g} = {result.tpda_base_total:,.0f} veh/día"
+            ).replace(",", ".")
+            st.code(formula, language=None)
+            st.caption(
+                "Aforo sintético declarado: 2 horas. La proyección posterior usa el motor "
+                "existente con crecimiento compuesto de 4,0 % durante 20 años."
+            )
 
         plot = pd.DataFrame(
             {
@@ -502,6 +648,11 @@ def render() -> None:
 
         demo_transfer = False
         if result.is_synthetic:
+            st.warning(
+                "methodologically_fit_for_next_phase=false: este TPDA no puede alimentar "
+                "Pesaje ni ESAL como resultado oficial. Solo puede continuar dentro del "
+                "modo demostración mediante aceptación explícita."
+            )
             demo_transfer = st.checkbox(
                 "Transferir exclusivamente en modo demostrativo",
                 key="tpda_weighing_demo_mode",

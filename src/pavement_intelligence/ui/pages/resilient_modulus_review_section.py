@@ -64,10 +64,16 @@ def render_review_section(source_result: GeotechnicalResult, *, source_current: 
         st.write(f"Salto relativo entre lados: **{discontinuity.cross_boundary_difference_percent:,.3f} %**")
 
     st.subheader("Adopción humana controlada")
-    mode = st.selectbox("Modo de adopción", list(AdoptionMode), format_func=lambda item: item.value)
+    mode = st.selectbox(
+        "Modo de adopción", list(AdoptionMode),
+        format_func=lambda item: item.value, key="geotech_4b_mode",
+    )
     applicable_ids = [item.correlation_id for item in comparison.alternatives]
-    selected = st.selectbox("Correlación seleccionada", [""] + applicable_ids,
-                            disabled=mode != AdoptionMode.CORRELATION_SELECTION)
+    selected = st.selectbox(
+        "Correlación seleccionada", [""] + applicable_ids,
+        disabled=mode != AdoptionMode.CORRELATION_SELECTION,
+        key="geotech_4b_selected",
+    )
     conservative_ack = st.checkbox(
         "Acepto que conservador significa menor MR aplicable y no es una regla normativa",
         disabled=mode != AdoptionMode.CONSERVATIVE_VALUE,
@@ -86,9 +92,16 @@ def render_review_section(source_result: GeotechnicalResult, *, source_current: 
     direct_date = st.date_input("Fecha del ensayo directo", value=date.today(),
                                 disabled=mode != AdoptionMode.DIRECT_TEST)
     direct_document = st.text_input("Documento del ensayo directo", disabled=mode != AdoptionMode.DIRECT_TEST)
-    responsible = st.text_input("Responsable de la adopción")
-    justification = st.text_area("Justificación de la adopción")
-    demo_ack = st.checkbox("Reconozco el carácter demostrativo de la fuente Fase 4A")
+    responsible = st.text_input(
+        "Responsable de la adopción", key="geotech_4b_responsible"
+    )
+    justification = st.text_area(
+        "Justificación de la adopción", key="geotech_4b_justification"
+    )
+    demo_ack = st.checkbox(
+        "Reconozco el carácter demostrativo de la fuente Fase 4A",
+        key="geotech_4b_demo_ack",
+    )
     direct = None
     if mode == AdoptionMode.DIRECT_TEST:
         direct = DirectTestEvidence(

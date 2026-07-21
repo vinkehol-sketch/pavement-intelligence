@@ -6,7 +6,7 @@ ESAL, CBR/MR ni AASHTO 93.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 import random
 from typing import Any
@@ -67,6 +67,13 @@ from pavement_intelligence.geotechnics.resilient_modulus_review import (
 from pavement_intelligence.integration.traffic_event_adapter import (
     adapt_traffic_event_for_review,
 )
+from pavement_intelligence.demo.metadata import (
+    DEMO_PROJECT_METADATA,
+    DEMO_REPORT_METADATA,
+    DEMO_RESPONSIBLE_PARTIES,
+    DEMO_REQUIRED_FIELDS,
+    demo_widget_defaults,
+)
 from pavement_intelligence.reporting.workflow import (
     PHASES,
     AdministrativeData,
@@ -101,9 +108,13 @@ DEMO_SEED = 20260720
 DEMO_DATA_ORIGIN = "synthetic_demo"
 DEMO_CASE_ID = "DEMO-CORREDOR-ANDINO-01"
 DEMO_NOTICE = "DATOS SINTÉTICOS — SOLO DEMOSTRACIÓN"
-DEMO_RESPONSIBLE = "Equipo demostrativo Pavement Intelligence"
-DEMO_REVIEWER = "Revisor sintético DEMO-01"
+DEMO_RESPONSIBLE = DEMO_RESPONSIBLE_PARTIES.study_lead
+DEMO_REVIEWER = DEMO_RESPONSIBLE_PARTIES.reviewer
 DEMO_REFERENCE_AT = "2026-07-18T14:00:00+00:00"
+DEMO_SURVEY_HOURS = 2.0
+DEMO_TEMPORAL_FACTOR = 12.0
+DEMO_SEASONAL_FACTOR = 1.0
+DEMO_TPDA_FORMULA = "106 × 12 × 1 = 1.272 veh/día"
 
 # Conteo aprobado para cálculo. BUS se observa en visión, pero queda fuera del
 # lote estructural por la limitación declarada del catálogo de ejes vigente.
@@ -303,9 +314,10 @@ def _ocr_reviews(
     }
 
 
-def _tpda() -> tuple[Any, Any]:
+def build_demo_tpda_input() -> TPDAWorkflowInput:
+    """Devuelve el contrato TPDA oficial y reproducible del caso demo."""
     automatic = {category: 0 for category in OFFICIAL_TPDA_CATEGORIES}
-    automatic.update({"MOTO": 18, "AUTO": 58, "BUS": 18})
+    automatic.update(DEMO_APPROVED_COUNTS)
     reclassifications = tuple(
         TruckReclassification(
             original_category="CAMION",
@@ -317,7 +329,7 @@ def _tpda() -> tuple[Any, Any]:
         )
         for category in ("C2", "C3", "TRACTOCAMION", "ARTICULADO")
     )
-    data = TPDAWorkflowInput(
+    return TPDAWorkflowInput(
         batch_id=DEMO_CASE_ID,
         source="Aforo revisado del corredor ficticio, ventana de 2 horas",
         data_origin=DEMO_DATA_ORIGIN,
@@ -325,8 +337,8 @@ def _tpda() -> tuple[Any, Any]:
         corrected_counts=dict(DEMO_APPROVED_COUNTS),
         pending_categories={"CAMION_NO_CONFIRMADO": 0},
         temporal_coverage=TemporalCoverage(
-            declared_hours=2.0,
-            verified_hours=2.0,
+            declared_hours=DEMO_SURVEY_HOURS,
+            verified_hours=DEMO_SURVEY_HOURS,
             duration_source="Intervalo ISO sintético 14:00–16:00 visible en el caso",
             operator_confirmed=True,
         ),
@@ -335,7 +347,7 @@ def _tpda() -> tuple[Any, Any]:
         seasonal_factor=FactorTrace(
             symbol="FE",
             name="Factor estacional",
-            value=1.0,
+            value=DEMO_SEASONAL_FACTOR,
             function="Identidad: sin ajuste estacional en el caso",
             source="Supuesto demostrativo visible; valor neutro 1,0",
             applicability="Corredor ficticio y fecha sintética",
@@ -358,6 +370,10 @@ def _tpda() -> tuple[Any, Any]:
         is_synthetic=True,
         synthetic_acknowledged=True,
     )
+
+
+def _tpda() -> tuple[Any, Any]:
+    data = build_demo_tpda_input()
     return data, calculate_tpda_workflow(data)
 
 
@@ -698,6 +714,63 @@ def build_demo_case() -> DemoCase:
         mr_review_input,
         mr_future,
     )
+    widget_defaults = demo_widget_defaults()
+    widget_defaults.update(
+        {
+            "esal3b_source": TemporalFactorSource.CALCULATED_DURATION,
+            "geotech_design_mode": DesignCBRMode.AVERAGE,
+            "geotech_origin": DataOrigin.SYNTHETIC,
+            "geotech_correlation_id": cbr_input.correlation_id,
+            "geotech_output_unit": cbr_input.output_unit,
+            "geotech_4b_mode": AdoptionMode.CORRELATION_SELECTION,
+            "geotech_4b_selected": mr_review_input.selected_correlation_id,
+            "aashto5a_reliability": sn_input.reliability_percent,
+            "aashto5a_zr_mode": sn_input.zr_source,
+            "aashto5a_zr": sn_input.zr,
+            "aashto5a_s0": sn_input.s0,
+            "aashto5a_p0": sn_input.p0,
+            "aashto5a_pt": sn_input.pt,
+            "aashto5a_sn_min": sn_input.solver.sn_min,
+            "aashto5a_sn_max": sn_input.solver.sn_max,
+            "aashto5a_tolerance": sn_input.solver.tolerance,
+            "aashto5a_max_iterations": sn_input.solver.max_iterations,
+            "aashto5a_boundary_margin": sn_input.solver.boundary_margin_fraction,
+            "5b_mode": layer_input.mode,
+            "5b_tolerance": layer_input.compliance_tolerance,
+            "5b_order": layer_input.search.order_by,
+            "report_included_phases": list(PHASES),
+        }
+    )
+    for rate in projection_input.growth_rates:
+        widget_defaults[f"esal3b_rate_{rate.category}"] = rate.annual_rate_percent
+        widget_defaults[f"esal3b_src_{rate.category}"] = rate.source
+        widget_defaults[f"esal3b_cond_{rate.category}"] = rate.condition
+    for layer in layer_input.layers:
+        widget_defaults[f"5b_mat_{layer.layer_type}"] = layer.material
+        widget_defaults[f"5b_unit_{layer.layer_type}"] = layer.thickness_unit
+        widget_defaults[f"5b_d_{layer.layer_type}"] = layer.thickness
+        widget_defaults[f"5b_a_{layer.layer_type}"] = layer.structural_coefficient
+        widget_defaults[f"5b_asource_{layer.layer_type}"] = layer.coefficient_source
+        widget_defaults[f"5b_m_{layer.layer_type}"] = layer.drainage_coefficient
+        widget_defaults[f"5b_q_{layer.layer_type}"] = layer.drainage_quality
+        widget_defaults[f"5b_sat_{layer.layer_type}"] = layer.saturation_time_percent
+        widget_defaults[f"5b_msource_{layer.layer_type}"] = layer.drainage_source
+        widget_defaults[f"5b_min_{layer.layer_type}"] = layer.minimum_thickness or 0.0
+    for search_range in layer_input.search.ranges:
+        widget_defaults[f"5b_smin_{search_range.layer_type}"] = search_range.minimum_in
+        widget_defaults[f"5b_smax_{search_range.layer_type}"] = search_range.maximum_in
+        widget_defaults[f"5b_sinc_{search_range.layer_type}"] = search_range.increment_in
+    for reading in readings:
+        review = ocr_reviews.get(reading.reading_id)
+        widget_defaults[f"ocr_corrected_{reading.reading_id}"] = (
+            review.corrected_text if review and review.corrected_text is not None else reading.original_text
+        )
+        widget_defaults[f"ocr_reason_{reading.reading_id}"] = (
+            review.reason
+            if review and review.reason == "Carácter confundido por OCR"
+            else "Otro" if review and review.reason else "Seleccione un motivo..."
+        )
+        widget_defaults[f"ocr_notes_{reading.reading_id}"] = review.notes if review else ""
     payload: dict[str, Any] = {
         "demo_mode_active": True,
         "demo_case_id": DEMO_CASE_ID,
@@ -707,6 +780,27 @@ def build_demo_case() -> DemoCase:
         "is_demo": True,
         "demo_loaded_at": "2026-07-18T18:10:00+00:00",
         "demo_review_history": review_history,
+        "demo_project_metadata": asdict(DEMO_PROJECT_METADATA),
+        "demo_responsible_parties": asdict(DEMO_RESPONSIBLE_PARTIES),
+        "demo_traffic_inputs": {
+            "video_source": "demo://corredor-andino/video-ficticio",
+            "survey_date": DEMO_PROJECT_METADATA.study_date.isoformat(),
+            "schedule": "14:00–16:00",
+            "directions": ("ASCENDENTE", "DESCENDENTE"),
+            "counting_station": "DEMO-LINE-01",
+            "operator": DEMO_RESPONSIBLE_PARTIES.traffic_operator,
+            "reviewer": DEMO_RESPONSIBLE_PARTIES.reviewer,
+            "data_origin": DEMO_DATA_ORIGIN,
+            "is_demo": True,
+        },
+        "demo_tpda_inputs": tpda_input,
+        "demo_weighing_inputs": weighing_input,
+        "demo_esal_inputs": {"phase_3a": esal_input, "phase_3b": projection_input},
+        "demo_geotechnical_inputs": {"phase_4a": cbr_input, "phase_4b": mr_review_input},
+        "demo_pavement_inputs": {"phase_5a": sn_input, "phase_5b": layer_input},
+        "demo_report_metadata": dict(DEMO_REPORT_METADATA),
+        "demo_required_field_audit": DEMO_REQUIRED_FIELDS,
+        "demo_widget_keys": tuple(widget_defaults),
         "demo_module_provenance": {
             module: {"data_origin": DEMO_DATA_ORIGIN, "is_demo": True}
             for module in (
@@ -741,7 +835,10 @@ def build_demo_case() -> DemoCase:
             "batch_id": DEMO_CASE_ID,
             "counts_by_category": dict(DEMO_APPROVED_COUNTS),
             "total": sum(DEMO_APPROVED_COUNTS.values()),
-            "duration_hours": 2.0,
+            "duration_hours": DEMO_SURVEY_HOURS,
+            "temporal_expansion_factor": DEMO_TEMPORAL_FACTOR,
+            "seasonal_factor": DEMO_SEASONAL_FACTOR,
+            "tpda_formula": DEMO_TPDA_FORMULA,
             "source": "demo://corredor-andino/video-ficticio",
             "data_origin": DEMO_DATA_ORIGIN,
             "reviewer": DEMO_REVIEWER,
@@ -750,6 +847,7 @@ def build_demo_case() -> DemoCase:
             "warnings": [DEMO_NOTICE],
             "batch_hash": f"synthetic-demo:{DEMO_SEED}",
         },
+        "demo_tpda_authoritative_input": tpda_input,
         "tpda_phase1_input": tpda_input,
         "tpda_phase1_result": tpda_result,
         "tpda_result": tpda_result,
@@ -793,15 +891,20 @@ def build_demo_case() -> DemoCase:
         "ocr_filters": {},
         "integrated_dossier_history": [],
     }
+    payload.update(widget_defaults)
     report_request = ReportRequest(
         administrative=AdministrativeData(
-            project_name="Corredor Andino ficticio — Caso demostrativo",
-            segment="Tramo A, progresiva ficticia K0+000–K5+000",
-            location="Municipio ficticio de Nueva Esperanza, Bolivia",
-            organization="Pavement Intelligence — demostración",
-            responsible=DEMO_RESPONSIBLE,
-            reviewer=DEMO_REVIEWER,
-            observations=f"{DEMO_NOTICE}. Sin validez profesional ni normativa.",
+            project_name=DEMO_PROJECT_METADATA.project_name,
+            segment=DEMO_PROJECT_METADATA.segment,
+            location=DEMO_PROJECT_METADATA.location,
+            organization=DEMO_PROJECT_METADATA.requesting_entity,
+            responsible=DEMO_RESPONSIBLE_PARTIES.study_lead,
+            reviewer=DEMO_RESPONSIBLE_PARTIES.reviewer,
+            observations=(
+                f"{DEMO_PROJECT_METADATA.observations} {DEMO_NOTICE}. "
+                f"Base de tránsito demostrativa: aforo sintético "
+                f"de 2 horas; {DEMO_TPDA_FORMULA}. Sin validez profesional ni normativa."
+            ),
         ),
         mode=ReportMode.COMPLETE.value,
         included_phases=PHASES,
@@ -824,6 +927,10 @@ def build_demo_case() -> DemoCase:
         "approved_crossings": sum(DEMO_APPROVED_COUNTS.values()),
         "initially_pending_events": len(review_history),
         "ocr_readings": len(readings),
+        "declared_duration_hours": tpda_result.declared_duration_hours,
+        "temporal_expansion_factor": tpda_result.temporal_expansion_factor,
+        "seasonal_factor": tpda_result.seasonal_factor,
+        "tpda_formula": DEMO_TPDA_FORMULA,
         "tpda_base": tpda_result.tpda_base_total,
         "projected_traffic": tpda_result.projected_traffic_total,
         "weighing_observations": weighing_result.observation_count,

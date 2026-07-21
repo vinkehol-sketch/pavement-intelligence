@@ -22,6 +22,7 @@ from pavement_intelligence.esal.workflow import (
 )
 from pavement_intelligence.weighing.workflow import WeighingWorkflowResult
 from pavement_intelligence.ui.pages.esal_projection_section import render_projection_section
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 
 def render() -> None:
@@ -113,11 +114,12 @@ def render() -> None:
         else "INCLUIR_TODOS_Y_MARCAR_ATIPICOS"
     )
 
-    reviewer = st.text_input("Revisor ESAL")
+    reviewer = st.text_input("Revisor ESAL", key="esal_reviewer")
     synthetic_ack = False
     if transfer.is_synthetic:
         synthetic_ack = st.checkbox(
-            "Reconozco que TPDA/Pesaje son sintéticos y el ESAL es demostrativo"
+            "Reconozco que TPDA/Pesaje son sintéticos y el ESAL es demostrativo",
+            key="esal_synthetic_ack",
         )
     has_estimated = any(
         item.load_source == "ESTIMADO_POR_CATEGORIA" for item in transfer.vehicles
@@ -128,11 +130,16 @@ def render() -> None:
             "El lote contiene cargas ESTIMADO_POR_CATEGORIA; no son mediciones WIM ni manuales verificadas."
         )
         estimated_ack = st.checkbox(
-            "Reconozco visiblemente que las cargas estimadas no son datos medidos"
+            "Reconozco visiblemente que las cargas estimadas no son datos medidos",
+            key="esal_estimated_ack",
         )
     assumptions_text = st.text_area(
         "Supuestos adicionales",
-        value="Factores camión derivados únicamente de observaciones incluidas.",
+        **widget_default(
+            st.session_state,
+            "esal_assumptions",
+            "Factores camión derivados únicamente de observaciones incluidas.",
+        ),
     )
 
     workflow_input = ESALWorkflowInput(

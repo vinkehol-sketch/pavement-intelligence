@@ -23,6 +23,17 @@ DEMO_MANAGED_SESSION_KEYS = frozenset(
         "demo_review_history",
         "demo_module_provenance",
         "demo_case_summary",
+        "demo_project_metadata",
+        "demo_responsible_parties",
+        "demo_traffic_inputs",
+        "demo_tpda_inputs",
+        "demo_weighing_inputs",
+        "demo_esal_inputs",
+        "demo_geotechnical_inputs",
+        "demo_pavement_inputs",
+        "demo_report_metadata",
+        "demo_required_field_audit",
+        "demo_widget_keys",
         "vision_events_raw",
         "vision_events_reviewed",
         "vision_batch_metadata",
@@ -31,6 +42,7 @@ DEMO_MANAGED_SESSION_KEYS = frozenset(
         "is_synthetic_review",
         "traffic_review_source_fingerprint",
         "tpda_input_from_review",
+        "demo_tpda_authoritative_input",
         "tpda_phase1_input",
         "tpda_phase1_result",
         "tpda_result",
@@ -115,10 +127,12 @@ def _has_value(value: Any) -> bool:
 
 def load_demo_session(session: MutableMapping[str, Any]) -> dict[str, Any]:
     """Carga todo o no carga nada; una sesión real no se sobrescribe."""
+    case = build_demo_case()
+    widget_keys = frozenset(case.session_payload.get("demo_widget_keys", ()))
     if not session.get("demo_mode_active"):
         conflicts = sorted(
             key
-            for key in DEMO_MANAGED_SESSION_KEYS | REAL_SESSION_GUARD_KEYS
+            for key in DEMO_MANAGED_SESSION_KEYS | REAL_SESSION_GUARD_KEYS | widget_keys
             if key in session and _has_value(session[key])
         )
         standalone_ocr = all(
@@ -132,7 +146,6 @@ def load_demo_session(session: MutableMapping[str, Any]) -> dict[str, Any]:
                 "La sesión contiene datos operacionales. Reiníciela o abra una sesión limpia "
                 "antes de cargar la demostración. Conflictos: " + ", ".join(conflicts[:6])
             )
-    case = build_demo_case()
     session.update(case.session_payload)
     return dict(case.summary)
 
@@ -140,6 +153,9 @@ def load_demo_session(session: MutableMapping[str, Any]) -> dict[str, Any]:
 def reset_demo_session(session: MutableMapping[str, Any]) -> None:
     """Elimina por completo el estado administrado por demo, sin tocar otros widgets."""
     was_active = bool(session.get("demo_mode_active"))
+    widget_keys = tuple(session.get("demo_widget_keys", ()))
+    for key in widget_keys:
+        session.pop(key, None)
     for key in DEMO_MANAGED_SESSION_KEYS:
         session.pop(key, None)
     if was_active:

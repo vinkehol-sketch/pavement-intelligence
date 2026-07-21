@@ -12,7 +12,6 @@ from pavement_intelligence.traffic.tpda_workflow import TPDAWorkflowResult
 from pavement_intelligence.weighing.workflow import (
     ALLOWED_AXLE_TYPES,
     CANONICAL_WEIGHT_UNIT,
-    HEAVY_CATEGORIES,
     WeighingCondition,
     WeighingInputFromTPDA,
     WeighingSourceType,
@@ -29,6 +28,7 @@ from pavement_intelligence.esal.workflow import (
     build_esal_input_from_weighing,
     store_esal_transfer,
 )
+from pavement_intelligence.ui.utils.widget_state import widget_default
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -112,6 +112,7 @@ def render() -> None:
             "Ingreso manual",
             "Biblioteca demostrativa",
         ],
+        key="weighing_source_label",
     )
     source_type = {
         "Archivo CSV": WeighingSourceType.CSV,
@@ -120,11 +121,13 @@ def render() -> None:
         "Ingreso manual": WeighingSourceType.MANUAL,
         "Biblioteca demostrativa": WeighingSourceType.DEMONSTRATION_LIBRARY,
     }[source_label]
-    source_date = st.date_input("Fecha de la fuente", value=date.today()).isoformat()
-    reviewer = st.text_input("Revisor de Pesaje")
+    source_date = st.date_input(
+        "Fecha de la fuente",
+        **widget_default(st.session_state, "weighing_source_date", date.today()),
+    ).isoformat()
+    reviewer = st.text_input("Revisor de Pesaje", key="weighing_reviewer")
     candidate = None
     source_reference = ""
-    candidate_synthetic = False
 
     if source_type in {
         WeighingSourceType.CSV,
@@ -152,7 +155,6 @@ def render() -> None:
                     condition=condition,
                     reviewer=reviewer,
                 )
-                candidate_synthetic = condition == WeighingCondition.SYNTHETIC
                 st.success(f"Muestra validada estructuralmente: {len(candidate)} registros.")
             except (UnicodeDecodeError, ValueError) as exc:
                 st.error(f"Archivo rechazado: {exc}")
@@ -160,7 +162,10 @@ def render() -> None:
         st.error(
             "pesaje_vehicular.csv es sintético y no constituye evidencia de cargas reales."
         )
-        if st.checkbox("Reconozco el carácter sintético de la biblioteca") and reviewer:
+        if st.checkbox(
+            "Reconozco el carácter sintético de la biblioteca",
+            key="weighing_demo_library_ack",
+        ) and reviewer:
             source_reference = str(DEMO_PATH)
             try:
                 candidate = parse_weighing_csv(
@@ -170,7 +175,6 @@ def render() -> None:
                     condition=WeighingCondition.SYNTHETIC,
                     reviewer=reviewer,
                 )
-                candidate_synthetic = True
                 st.success(f"Biblioteca demostrativa preparada: {len(candidate)} registros.")
             except ValueError as exc:
                 st.error(str(exc))
@@ -265,11 +269,12 @@ def render() -> None:
         "Tolerancia entre suma de ejes y peso bruto (%)",
         min_value=0.1,
         max_value=20.0,
-        value=5.0,
+        **widget_default(st.session_state, "weighing_tolerance", 5.0),
     )
     outlier_treatment = st.selectbox(
         "Tratamiento de valores atípicos",
         ["MARCAR_SIN_EXCLUIR", "REVISAR_MANUALMENTE"],
+        key="weighing_outlier_treatment",
     )
     synthetic_chain = transfer.is_synthetic or any(
         item.condition == WeighingCondition.SYNTHETIC.value for item in records
@@ -277,7 +282,8 @@ def render() -> None:
     synthetic_ack = False
     if synthetic_chain:
         synthetic_ack = st.checkbox(
-            "Reconozco que la cadena contiene datos sintéticos y es solo demostrativa"
+            "Reconozco que la cadena contiene datos sintéticos y es solo demostrativa",
+            key="weighing_synthetic_ack",
         )
 
     workflow_input = WeighingWorkflowInput(

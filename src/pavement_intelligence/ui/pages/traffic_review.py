@@ -23,6 +23,7 @@ from pavement_intelligence.integration import (
 )
 from pavement_intelligence.integration.traffic_event_adapter import REQUIRED_EVENT_FIELDS
 from pavement_intelligence.demo import build_demo_traffic_events
+from pavement_intelligence.ui.utils.widget_state import widget_default
 from pavement_intelligence.utils.catalog_loader import get_vehicle_categories, load_yaml_catalog_cached
 
 _VEHICLE_CATALOG_PATH = Path(__file__).resolve().parents[2] / "config" / "vehicle_catalog.yaml"
@@ -451,8 +452,22 @@ def render() -> None:
                 m_dir = st.selectbox("Sentido:", options=["Ascendente (1)", "Descendente (-1)"], index=0)
             with col_m2:
                 m_sec = st.number_input("Segundo aproximado del video:", min_value=0.0, value=0.0, step=1.0)
-                m_reason = st.text_input("Justificación de la omisión:", value="Vehículo omitido por oclusión visual.")
-                m_reviewer = st.text_input("Responsable de la revisión:", value="Operador")
+                m_reason = st.text_input(
+                    "Justificación de la omisión:",
+                    **widget_default(
+                        st.session_state,
+                        "traffic_review_manual_reason",
+                        "Vehículo omitido por oclusión visual.",
+                    ),
+                )
+                m_reviewer = st.text_input(
+                    "Responsable de la revisión:",
+                    **widget_default(
+                        st.session_state,
+                        "traffic_review_manual_reviewer",
+                        "Operador",
+                    ),
+                )
             
             m_submitted = st.form_submit_button("✅ Agregar Registro Manual")
             if m_submitted:
@@ -690,7 +705,11 @@ def render() -> None:
     
     if is_synthetic:
         st.error("🚨 Los datos actuales provienen del caso de simulación demostrativo y están marcados como sintéticos.")
-        usuario_acepta_sintetico = st.checkbox("Confirmo que entiendo que este reporte utiliza datos sintéticos demostrativos y no es apto para diseño vial oficial.")
+        usuario_acepta_sintetico = st.checkbox(
+            "Confirmo que entiendo que este reporte utiliza datos sintéticos "
+            "demostrativos y no es apto para diseño vial oficial.",
+            key="traffic_review_synthetic_ack",
+        )
 
     # Validar criterios
     approval_enabled, warnings_approval = validate_approval_criteria(
@@ -708,7 +727,10 @@ def render() -> None:
         st.success("✅ Todos los requisitos de integridad técnica de aforo se han cumplido correctamente.")
 
     # Aprobación de Totales Checkbox
-    user_approved_totals = st.checkbox("Acepto y apruebo los totales resultantes del conteo consolidado.")
+    user_approved_totals = st.checkbox(
+        "Acepto y apruebo los totales resultantes del conteo consolidado.",
+        key="traffic_review_totals_ack",
+    )
 
     aprobar_btn = st.button(
         "🔒 Aprobar Aforo Revisado",
@@ -763,7 +785,10 @@ def render() -> None:
                 "Esta acción preparará los datos del aforo auditado para ser cargados en el módulo "
                 "**📊 Aforo y TPDA** de forma controlada y reversible. No modificará los cálculos de TPDA existentes."
             )
-            confirmar_envio = st.checkbox("Confirmo que deseo transferir este lote de aforo aprobado al módulo de TPDA.")
+            confirmar_envio = st.checkbox(
+                "Confirmo que deseo transferir este lote de aforo aprobado al módulo de TPDA.",
+                key="traffic_review_transfer_ack",
+            )
             
         with col_tr2:
             traspaso_btn = st.button(
